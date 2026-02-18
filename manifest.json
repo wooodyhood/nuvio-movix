@@ -1,11 +1,17 @@
-[
-  {
-    "id": "movix-vf-plugin",
-    "name": "Movix VF",
-    "version": "1.0.5",
-    "description": "Source Movix.blog",
-    "type": "movie",
-    "main": "movix.js"
-  }
-]
+{
+  "name": "Movix Repository",
+  "id": "movix.repo",
+  "version": "1.0.6",
+  "author": "Woody",
+  "providers": [
+    {
+      "id": "movix-vf-plugin",
+      "name": "Movix VF",
+      "version": "1.0.6",
+      "description": "Streaming VF via Movix.blog",
+      "type": "movie",
+      "main": "movix.js"
+    }
+  ]
+}
  
