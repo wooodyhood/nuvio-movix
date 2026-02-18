@@ -1,12 +1,10 @@
 {
-  "id": "movix-vf-provider",
-  "name": "Movix VF (Officiel)",
-  "version": "1.0.0",
-  "description": "Source de streaming française via Movix.blog",
+  "id": "movix-vf-plugin",
+  "name": "Movix VF",
+  "version": "1.0.1",
+  "description": "Source de streaming française Movix.blog",
   "language": "fr",
-  "icon": "https://movix.blog/favicon.ico",
-  "type": "movie",
-  "filename": "movix.js",
-  "supportedTypes": ["movie", "tv"],
-  "enabled": true
+  "type": "provider",
+  "main": "movix.js",
+  "supportedTypes": ["movie"]
 }
