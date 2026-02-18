@@ -1,16 +1,16 @@
 {
   "name": "Movix Repo",
   "id": "movix.repo",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "Woody",
   "plugins": [
     {
-      "id": "movix.vf",
+      "id": "movix-vf",
       "name": "Movix VF",
       "type": "provider",
-      "main": "https://raw.githubusercontent.com/wooodyhood/nuvio-movix/main/movix.js",
-      "version": "1.0.0",
-      "description": "Streaming VF"
+      "main": "movix.js",
+      "version": "1.1.0",
+      "description": "Source Movix.blog (Transpiled)"
     }
   ]
 }
