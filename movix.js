@@ -1,30 +1,27 @@
 async function getStreams(item) {
     try {
-        // item.title est fourni directement par Nuvio
-        const query = encodeURIComponent(item.title);
-        const searchUrl = "https://movix.blog/search?q=" + query;
+        const title = item.title || item.name;
+        const searchUrl = "https://movix.blog/search?q=" + encodeURIComponent(title);
         
         const response = await fetch(searchUrl);
-        const text = await response.text();
+        const html = await response.text();
 
-        // On cherche le premier lien de film dans la page de recherche
-        const match = text.match(/href="\/movie\/([^"]+)"/);
+        const match = html.match(/href="\/movie\/([^"]+)"/);
         if (!match) return [];
 
         const movieUrl = "https://movix.blog/movie/" + match[1];
 
         return [
             {
-                name: "Movix HD",
-                title: item.title + " [VF]",
+                name: "Movix VF",
+                title: title + " [HD]",
                 url: movieUrl,
-                quality: "1080p"
+                quality: "1080p",
+                headers: { "Referer": "https://movix.blog/" }
             }
         ];
     } catch (e) {
         return [];
     }
 }
-
-export default { getStreams };
  
