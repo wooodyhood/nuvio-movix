@@ -4,7 +4,24 @@
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
-      ...
+      "name": "Movix VF",
+      "description": "Films et séries en VF/VOSTFR depuis movix.rodeo",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/movix.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
     },
     {
       "id": "toflix-vf",
@@ -12,12 +29,20 @@
       "description": "Films et séries en VF depuis toflix.space",
       "version": "1.0.0",
       "author": "wooodyhood",
-      "supportedTypes": ["movie", "tv"],
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
       "filename": "providers/toflix.js",
       "enabled": true,
       "logo": "",
-      "contentLanguage": ["fr"],
-      "formats": ["mp4", "m3u8"]
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
     }
   ]
 }
