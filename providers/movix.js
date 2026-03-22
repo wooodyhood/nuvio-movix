@@ -150,8 +150,21 @@ function fetchFstream(apiBase, referer, tmdbId, mediaType, season, episode) {
     });
 }
  
+// Domaines qu'on ne peut pas résoudre (nécessitent cookies/JS)
+var UNSUPPORTED_PLAYERS = ['netu', 'voe', 'uqload', 'doodstream', 'vidoza', 'younetu', 'bysebuho', 'kakaflix', 'ralphy'];
+ 
 function processEmbedSources(sources, referer) {
-  return Promise.all(sources.slice(0, 8).map(function(source) {
+  // Filtrer d'abord les players non supportés
+  var supportedSources = sources.filter(function(source) {
+    var urlLower = source.url.toLowerCase();
+    return !UNSUPPORTED_PLAYERS.some(function(player) {
+      return urlLower.indexOf(player) !== -1;
+    });
+  });
+ 
+  if (supportedSources.length === 0) return Promise.resolve([]);
+ 
+  return Promise.all(supportedSources.slice(0, 8).map(function(source) {
     return resolveEmbed(source.url, referer).then(function(directUrl) {
       // On vérifie que l'URL résolue est bien un stream direct
       if (!directUrl || (!directUrl.match(/\.m3u8/i) && !directUrl.match(/\.mp4/i))) return null;
