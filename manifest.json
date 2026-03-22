@@ -2,11 +2,25 @@
   {
     "id": "movix-rodeo-vf",
     "name": "Movix VF",
-    "filename": "providers/movix.js",
+    "description": "Films et séries en VF/VOSTFR depuis movix.rodeo",
+    "version": "1.0.0",
+    "author": "wooodyhood",
     "supportedTypes": [
       "movie",
       "tv"
     ],
-    "enabled": true
+    "filename": "providers/movix.js",
+    "enabled": true,
+    "logo": "",
+    "contentLanguage": [
+      "fr"
+    ],
+    "formats": [
+      "mp4",
+      "m3u8"
+    ],
+    "limited": false,
+    "disabledPlatforms": [],
+    "supportsExternalPlayer": true
   }
 ]
