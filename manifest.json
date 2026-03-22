@@ -3,7 +3,10 @@
     "id": "movix-rodeo-vf",
     "name": "Movix VF",
     "filename": "providers/movix.js",
-    "supportedTypes": ["movie", "tv"],
+    "supportedTypes": [
+      "movie",
+      "tv"
+    ],
     "enabled": true
   }
 ]
