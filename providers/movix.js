@@ -153,13 +153,14 @@ function fetchFstream(apiBase, referer, tmdbId, mediaType, season, episode) {
 function processEmbedSources(sources, referer) {
   return Promise.all(sources.slice(0, 8).map(function(source) {
     return resolveEmbed(source.url, referer).then(function(directUrl) {
-      if (!directUrl) return null;
+      // On vérifie que l'URL résolue est bien un stream direct
+      if (!directUrl || (!directUrl.match(/\.m3u8/i) && !directUrl.match(/\.mp4/i))) return null;
       return {
         name: 'Movix',
         title: source.name + ' - ' + source.player,
         url: directUrl,
         quality: 'HD',
-        format: 'm3u8',
+        format: directUrl.match(/\.mp4/i) ? 'mp4' : 'm3u8',
         headers: {
           'Referer': referer,
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
