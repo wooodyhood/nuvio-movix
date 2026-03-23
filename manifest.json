@@ -1,11 +1,11 @@
 {
-  "name": "Movix VF Repo",
+  "name": "Woody's Repo",
   "version": "1.0.0",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
       "name": "Movix VF",
-      "description": "Films et séries en VF/VOSTFR depuis movix.rodeo",
+      "description": "Films et séries en VF depuis movix",
       "version": "1.0.0",
       "author": "wooodyhood",
       "supportedTypes": [
@@ -26,7 +26,7 @@
     {
       "id": "toflix-vf",
       "name": "ToFlix VF",
-      "description": "Films et séries en VF depuis toflix.space",
+      "description": "Films et séries en VF depuis toflix",
       "version": "1.0.0",
       "author": "wooodyhood",
       "supportedTypes": [
@@ -41,26 +41,6 @@
       ],
       "formats": [
         "mp4",
-        "m3u8"
-      ]
-    },
-    {
-      "id": "moiflix-vf",
-      "name": "Moiflix VF",
-      "description": "Films et séries en VF depuis moiflix.org",
-      "version": "1.0.0",
-      "author": "wooodyhood",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
-      "filename": "providers/moiflix.js",
-      "enabled": true,
-      "logo": "",
-      "contentLanguage": [
-        "fr"
-      ],
-      "formats": [
         "m3u8"
       ]
     }
