@@ -3,26 +3,30 @@ const API_URL = 'https://cinefuse.cc/api/v1';
 
 async function getStreams(tmdbId, type, season, episode) {
     try {
-        // 1. Récupération des infos TMDB
+        // 1. On récupère le titre propre via TMDB (pour éviter les erreurs de frappe)
         const metaRes = await fetch(`https://api.themoviedb.org/3/${type === 'movie' ? 'movie' : 'tv'}/${tmdbId}?api_key=c03975765c3459c5d18f7596056589f3&language=fr-FR`);
         const meta = await metaRes.json();
         const title = meta.title || meta.name;
 
-        // 2. Recherche via l'API interne de Cinefuse
-        const searchRes = await fetch(`${API_URL}/content?query=${encodeURIComponent(title)}&limit=10`, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+        // 2. Recherche sur l'API Cinefuse (la ligne "content" que tu as vue)
+        const searchUrl = `${API_URL}/content?query=${encodeURIComponent(title)}&limit=5`;
+        const searchRes = await fetch(searchUrl, {
+            headers: { 
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+                'Referer': BASE_URL
+            }
         });
         const searchData = await searchRes.json();
-        
-        // On cherche le résultat qui correspond le mieux au titre
-        const item = searchData.find(d => d.title.toLowerCase().includes(title.toLowerCase())) || searchData[0];
-        if (!item) return [];
 
-        const slug = item.slug;
+        // On prend le premier résultat qui correspond au titre
+        if (!searchData || searchData.length === 0) return [];
+        const content = searchData[0];
+        const slug = content.slug;
 
-        // 3. Appel à l'API "video" (celle que tu as vue dans F12)
-        // Pour une série, l'URL change un peu
+        // 3. Récupération des serveurs vidéo (la ligne "video" que tu as vue)
         let videoApiUrl = `${API_URL}/content/${slug}/video`;
+        
+        // Si c'est une série, l'URL de l'API change légèrement pour cibler l'épisode
         if (type === 'tv') {
             videoApiUrl = `${API_URL}/content/${slug}/series/${season}/${episode}/video`;
         }
@@ -30,46 +34,48 @@ async function getStreams(tmdbId, type, season, episode) {
         const videoRes = await fetch(videoApiUrl, {
             headers: { 
                 'Referer': `${BASE_URL}/watch/${slug}`,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
             }
         });
-        const videoData = await videoRes.json();
-
-        // 4. Extraction des serveurs
-        const streams = [];
         
-        // videoData devrait contenir une liste de serveurs (Voe, Vidmoly, etc.)
+        const videoData = await videoRes.json();
+        const streams = [];
+
+        // 4. On boucle sur les serveurs trouvés (Voe, Vidmoly, etc.)
         if (videoData && Array.isArray(videoData)) {
             for (const server of videoData) {
-                const url = server.url || server.link;
-                const name = server.name || "Serveur";
+                const videoUrl = server.url || server.link;
+                const serverName = server.name || "Serveur";
 
-                if (url.includes('voe.sx')) {
-                    // Resolver pour Voe (Lien direct)
-                    const voeRes = await fetch(url);
+                // Si c'est du VOE, on extrait le lien direct pour éviter les erreurs de lecteur
+                if (videoUrl.includes('voe.sx')) {
+                    const voeRes = await fetch(videoUrl);
                     const voeHtml = await voeRes.text();
                     const m3u8Match = voeHtml.match(/'hls':\s*'([^']+)'/) || voeHtml.match(/"hls":\s*"([^"]+)"/);
+                    
                     if (m3u8Match) {
                         streams.push({
-                            name: `Cinefuse - ${name} (Direct)`,
+                            name: `Cinefuse - ${serverName} (Direct)`,
                             url: m3u8Match[1],
                             type: "direct",
                             quality: "1080p"
                         });
+                        continue; // On passe au serveur suivant
                     }
-                } else {
-                    // Autres serveurs en mode Iframe (fallback)
-                    streams.push({
-                        name: `Cinefuse - ${name}`,
-                        url: url,
-                        type: "iframe",
-                        quality: "HD"
-                    });
                 }
+
+                // Pour les autres serveurs (ou si Voe direct échoue), on met l'iframe
+                streams.push({
+                    name: `Cinefuse - ${serverName}`,
+                    url: videoUrl,
+                    type: "iframe",
+                    quality: "HD"
+                });
             }
         }
 
         return streams;
+
     } catch (e) {
         console.error("Erreur Cinefuse:", e);
         return [];
