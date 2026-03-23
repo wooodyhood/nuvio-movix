@@ -43,6 +43,26 @@
         "mp4",
         "m3u8"
       ]
+    },
+    {
+      "id": "moiflix-vf",
+      "name": "Moiflix VF",
+      "description": "Films et séries en VF depuis moiflix.org",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/moiflix.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "m3u8"
+      ]
     }
   ]
 }
