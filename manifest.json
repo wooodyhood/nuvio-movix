@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.4",
+  "version": "1.0.0",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -8,12 +8,20 @@
       "description": "Films et séries en VF depuis movix",
       "version": "1.0.0",
       "author": "wooodyhood",
-      "supportedTypes": ["movie", "tv"],
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
       "filename": "providers/movix.js",
       "enabled": true,
       "logo": "",
-      "contentLanguage": ["fr"],
-      "formats": ["mp4", "m3u8"]
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
     },
     {
       "id": "toflix-vf",
@@ -21,25 +29,20 @@
       "description": "Films et séries en VF depuis toflix",
       "version": "1.0.0",
       "author": "wooodyhood",
-      "supportedTypes": ["movie", "tv"],
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
       "filename": "providers/toflix.js",
       "enabled": true,
       "logo": "",
-      "contentLanguage": ["fr"],
-      "formats": ["mp4", "m3u8"]
-    },
-    {
-      "id": "noctaflix-vf",
-      "name": "Noctaflix VF",
-      "description": "Films et séries en VF/4K (Lien Direct)",
-      "version": "1.0.0",
-      "author": "wooodyhood",
-      "supportedTypes": ["movie", "tv"],
-      "filename": "providers/noctaflix.js",
-      "enabled": true,
-      "logo": "",
-      "contentLanguage": ["fr"],
-      "formats": ["mp4", "m3u8"]
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
     }
   ]
 }
