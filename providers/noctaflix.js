@@ -1,12 +1,43 @@
 // =============================================================
 // Provider Nuvio : Noctaflix (VF français)
-// Version : 2.0.0 - Recherche Livewire + détection domaine Telegram
+// Version : 3.0.0 - Titre via TMDB public + recherche Livewire
 // =============================================================
  
 var NOCTAFLIX_DEFAULT = 'https://noctaflix.lol';
 var NOCTAFLIX_TELEGRAM = 'https://t.me/s/noctaflix';
  
-// Récupère le domaine actuel depuis la description du canal Telegram
+// Récupère le titre français depuis la page TMDB publique (sans clé API)
+function getTitleFromTmdb(tmdbId, mediaType) {
+  var tmdbUrl = mediaType === 'tv'
+    ? 'https://www.themoviedb.org/tv/' + tmdbId + '?language=fr-FR'
+    : 'https://www.themoviedb.org/movie/' + tmdbId + '?language=fr-FR';
+ 
+  return fetch(tmdbUrl, {
+    method: 'GET',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+      'Accept-Language': 'fr-FR,fr;q=0.9'
+    }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      // Chercher le titre dans la balise <title> ou og:title
+      var ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/);
+      if (ogTitle) {
+        // Nettoyer le titre (enlever " — The Movie Database (TMDB)" etc.)
+        var title = ogTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (title) return title;
+      }
+      var pageTitle = html.match(/<title>([^<]+)<\/title>/);
+      if (pageTitle) {
+        var title = pageTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (title) return title;
+      }
+      throw new Error('Titre non trouvé sur TMDB');
+    });
+}
+ 
+// Récupère le domaine actuel depuis le canal Telegram
 function detectDomainFromTelegram() {
   return fetch(NOCTAFLIX_TELEGRAM, {
     method: 'GET',
@@ -25,24 +56,8 @@ function detectDomainFromTelegram() {
     .catch(function() { return null; });
 }
  
-function slugify(title) {
-  return title
-    .toLowerCase()
-    .replace(/[àáâãä]/g, 'a')
-    .replace(/[èéêë]/g, 'e')
-    .replace(/[ìíîï]/g, 'i')
-    .replace(/[òóôõö]/g, 'o')
-    .replace(/[ùúûü]/g, 'u')
-    .replace(/[ç]/g, 'c')
-    .replace(/[ñ]/g, 'n')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '');
-}
- 
-// Recherche le slug exact via Livewire en matchant le titre
+// Recherche le slug sur Noctaflix via Livewire en matchant le titre
 function findSlugByTitle(base, title, mediaType) {
-  var searchQuery = title;
- 
   return fetch(base + '/', {
     method: 'GET',
     headers: {
@@ -79,7 +94,7 @@ function findSlugByTitle(base, title, mediaType) {
         },
         body: JSON.stringify({
           _token: token,
-          components: [{ snapshot: searchSnap, updates: { q: searchQuery }, calls: [] }]
+          components: [{ snapshot: searchSnap, updates: { q: title }, calls: [] }]
         })
       });
     })
@@ -87,7 +102,7 @@ function findSlugByTitle(base, title, mediaType) {
     .then(function(data) {
       var html = data.components[0].effects.html;
  
-      // Extraire tous les résultats : slug + titre (alt)
+      // Extraire tous les résultats : type, slug, titre (alt)
       var pattern = /href="[^"]+\/(movie|tv-show)\/([a-z0-9-]+)"[\s\S]{0,500}?alt="([^"]+)"/g;
       var match;
       var results = [];
@@ -95,7 +110,7 @@ function findSlugByTitle(base, title, mediaType) {
         results.push({ type: match[1], slug: match[2], altTitle: match[3] });
       }
  
-      if (results.length === 0) throw new Error('Aucun résultat de recherche');
+      if (results.length === 0) throw new Error('Aucun résultat pour "' + title + '"');
  
       // Chercher le résultat dont le titre correspond exactement
       var titleLower = title.toLowerCase().trim();
@@ -169,9 +184,14 @@ function getStreamFromEmbed(base, embedId) {
     });
 }
  
-function tryGetStreams(base, tmdbId, mediaType, season, episode, title) {
-  // Étape 1 : trouver le slug via la recherche Livewire
-  return findSlugByTitle(base, title, mediaType)
+function tryGetStreams(base, tmdbId, mediaType, season, episode) {
+  // Étape 1 : récupérer le titre depuis TMDB public
+  return getTitleFromTmdb(tmdbId, mediaType)
+    .then(function(title) {
+      console.log('[Noctaflix] Titre TMDB: ' + title);
+      // Étape 2 : trouver le slug via recherche Livewire
+      return findSlugByTitle(base, title, mediaType);
+    })
     .then(function(result) {
       var pageUrl;
       if (mediaType === 'tv') {
@@ -179,7 +199,7 @@ function tryGetStreams(base, tmdbId, mediaType, season, episode, title) {
       } else {
         pageUrl = '/movie/' + result.slug;
       }
-      console.log('[Noctaflix] Page URL: ' + pageUrl);
+      console.log('[Noctaflix] Page: ' + pageUrl);
       return getEmbedId(base, pageUrl);
     })
     .then(function(embedId) {
@@ -203,25 +223,19 @@ function tryGetStreams(base, tmdbId, mediaType, season, episode, title) {
     });
 }
  
-function getStreams(tmdbId, mediaType, season, episode, title) {
-  console.log('[Noctaflix] tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode + ' title=' + title);
- 
-  // Si pas de titre, on ne peut pas chercher
-  if (!title || title === '') {
-    console.error('[Noctaflix] Titre manquant, impossible de chercher');
-    return Promise.resolve([]);
-  }
+function getStreams(tmdbId, mediaType, season, episode) {
+  console.log('[Noctaflix] tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode);
  
   // Étape 1 : essayer avec le domaine par défaut
-  return tryGetStreams(NOCTAFLIX_DEFAULT, tmdbId, mediaType, season, episode, title)
+  return tryGetStreams(NOCTAFLIX_DEFAULT, tmdbId, mediaType, season, episode)
     .catch(function(err) {
       // Étape 2 : domaine par défaut en échec, récupérer le nouveau depuis Telegram
-      console.log('[Noctaflix] Domaine par défaut en échec (' + err.message + '), tentative Telegram...');
+      console.log('[Noctaflix] Echec (' + err.message + '), tentative Telegram...');
       return detectDomainFromTelegram().then(function(newBase) {
-        if (!newBase) throw new Error('Impossible de détecter le domaine');
+        if (!newBase) throw new Error('Domaine introuvable sur Telegram');
         if (newBase === NOCTAFLIX_DEFAULT) throw new Error('Même domaine, toujours en échec');
         console.log('[Noctaflix] Nouveau domaine: ' + newBase);
-        return tryGetStreams(newBase, tmdbId, mediaType, season, episode, title);
+        return tryGetStreams(newBase, tmdbId, mediaType, season, episode);
       });
     })
     .catch(function(err) {
