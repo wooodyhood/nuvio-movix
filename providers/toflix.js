@@ -1,15 +1,53 @@
 // =============================================================
 // Provider Nuvio : ToFlix (VF français)
 // API : api.toflix.space
-// Version : 1.0.0
+// Version : 2.0.0 - Détection automatique du domaine via Telegram
 // =============================================================
  
 var TOFLIX_API = 'https://api.toflix.space/toflix_api.php';
+var TOFLIX_REFERER = 'https://toflix.space/';
 var TOFLIX_TOKEN = 'TobiCocoToflix2025TokenDeLaV2MeilleurSiteDeStreaminAuMondeEntierQuiEcraseToutSurSonCheminNeDevenezPasJalouxBandeDeNoobs';
+var TELEGRAM_CHANNEL = 'https://t.me/s/toflixofficiel';
  
-function getStreams(tmdbId, mediaType, season, episode) {
-  console.log('[ToFlix] Fetching tmdbId=' + tmdbId + ' type=' + mediaType);
+// Détecte automatiquement le domaine via le Telegram officiel
+function detectDomainFromTelegram() {
+  return fetch(TELEGRAM_CHANNEL, {
+    method: 'GET',
+    headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      // Cherche les URLs toflix.xxx dans les messages
+      var matches = html.match(/https?:\/\/toflix\.[a-z]+/gi);
+      if (!matches || matches.length === 0) return null;
  
+      // Filtre les URLs valides (pas telegram, pas t.me)
+      var domains = matches.filter(function(url) {
+        return !url.includes('t.me') && !url.includes('telegram');
+      });
+ 
+      if (domains.length === 0) return null;
+ 
+      // Prend le dernier domaine mentionné (le plus récent)
+      var lastDomain = domains[domains.length - 1];
+      var domainMatch = lastDomain.match(/^(https?:\/\/[^\/\s]+)/);
+      if (!domainMatch) return null;
+ 
+      var frontend = domainMatch[1];
+      var apiDomain = frontend.replace(/^(https?:\/\/)toflix\./, '$1api.toflix.');
+ 
+      console.log('[ToFlix] Domaine détecté via Telegram: ' + frontend);
+      console.log('[ToFlix] API: ' + apiDomain);
+ 
+      return {
+        api: apiDomain + '/toflix_api.php',
+        referer: frontend + '/'
+      };
+    })
+    .catch(function() { return null; });
+}
+ 
+function callApi(apiUrl, referer, tmdbId, mediaType, season, episode) {
   var endpoint = mediaType === 'tv' ? 'tv' : 'movie';
   var body = { api: 'fastflux', endpoint: endpoint, tmdb_id: String(tmdbId) };
  
@@ -18,13 +56,13 @@ function getStreams(tmdbId, mediaType, season, episode) {
     body.episode = episode || 1;
   }
  
-  return fetch(TOFLIX_API, {
+  return fetch(apiUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       'tfxtoken': TOFLIX_TOKEN,
-      'Origin': 'https://toflix.space',
-      'Referer': 'https://toflix.space/'
+      'Origin': referer.replace(/\/$/, ''),
+      'Referer': referer
     },
     body: JSON.stringify(body)
   })
@@ -33,13 +71,25 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return res.json();
     })
     .then(function(data) {
-      console.log('[ToFlix] Response:', JSON.stringify(data));
+      if (!data || !data.success || !data.source_url) throw new Error('Aucune source');
+      return data;
+    });
+}
  
-      if (!data || !data.success || !data.source_url) {
-        console.log('[ToFlix] Aucune source trouvée');
-        return [];
-      }
+function getStreams(tmdbId, mediaType, season, episode) {
+  console.log('[ToFlix] Fetching tmdbId=' + tmdbId + ' type=' + mediaType);
  
+  // Étape 1 : Essayer avec l'API connue
+  return callApi(TOFLIX_API, TOFLIX_REFERER, tmdbId, mediaType, season, episode)
+    .catch(function(err) {
+      // Étape 2 : Si ça échoue, détecter le nouveau domaine via Telegram
+      console.log('[ToFlix] API principale échouée (' + err.message + '), tentative Telegram...');
+      return detectDomainFromTelegram().then(function(detected) {
+        if (!detected) throw new Error('Détection Telegram échouée');
+        return callApi(detected.api, detected.referer, tmdbId, mediaType, season, episode);
+      });
+    })
+    .then(function(data) {
       var streams = [{
         name: 'ToFlix',
         title: (data.title || 'ToFlix') + ' - VF',
@@ -47,12 +97,11 @@ function getStreams(tmdbId, mediaType, season, episode) {
         quality: 'HD',
         format: data.source && data.source.type === 'm3u8' ? 'm3u8' : 'mp4',
         headers: {
-          'Referer': 'https://toflix.space/',
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+          'Referer': TOFLIX_REFERER,
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
       }];
  
-      // Si l'API retourne aussi des sources alternatives
       if (data.sources && Array.isArray(data.sources)) {
         data.sources.forEach(function(source) {
           if (source.url && source.url !== data.source_url) {
@@ -63,8 +112,8 @@ function getStreams(tmdbId, mediaType, season, episode) {
               quality: source.quality || 'HD',
               format: source.type || 'mp4',
               headers: {
-                'Referer': 'https://toflix.space/',
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+                'Referer': TOFLIX_REFERER,
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
               }
             });
           }
@@ -74,7 +123,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return streams;
     })
     .catch(function(err) {
-      console.error('[ToFlix] Erreur:', err.message || err);
+      console.error('[ToFlix] Erreur globale:', err.message || err);
       return [];
     });
 }
