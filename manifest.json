@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.1",
+  "version": "1.0.3",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -45,16 +45,16 @@
       ]
     },
     {
-      "id": "noctaflix-vf",
-      "name": "Noctaflix VF",
-      "description": "Films et séries en VF depuis Noctaflix",
+      "id": "cinefuse-vf",
+      "name": "Cinefuse VF",
+      "description": "Films et séries Haute Qualité depuis Cinefuse",
       "version": "1.0.0",
       "author": "wooodyhood",
       "supportedTypes": [
         "movie",
         "tv"
       ],
-      "filename": "providers/noctaflix.js",
+      "filename": "providers/cinefuse.js",
       "enabled": true,
       "logo": "",
       "contentLanguage": [
