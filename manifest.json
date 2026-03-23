@@ -43,6 +43,27 @@
         "mp4",
         "m3u8"
       ]
+    },
+    {
+      "id": "noctaflix-vf",
+      "name": "Noctaflix VF",
+      "description": "Films et séries en VF depuis Noctaflix",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": [
+        "movie",
+        "tv"
+      ],
+      "filename": "providers/noctaflix.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": [
+        "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
     }
   ]
 }
