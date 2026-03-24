@@ -1,10 +1,39 @@
 // =============================================================
 // Provider Nuvio : YopFlix (VF/VOSTFR français)
-// Version : 3.0.0 - API fonctionnelle + séries
+// Version : 4.0.0 - Dépaquetage JavaScript comme movix.js
 // =============================================================
 
 var YOPFLIX_BASE = 'https://yopflix.my';
 var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+
+// Fonction de dépaquetage (identique à celle de movix.js)
+function unpackPacker(packed) {
+  var match = packed.match(/\('(.+)',\s*(\d+),\s*(\d+),\s*'(.+)'\.split/);
+  if (!match) return null;
+
+  var p = match[1];
+  var a = parseInt(match[2]);
+  var c = parseInt(match[3]);
+  var k = match[4].split('|');
+
+  function decode(base, num) {
+    var chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    var result = '';
+    do {
+      result = chars[num % base] + result;
+      num = Math.floor(num / base);
+    } while (num > 0);
+    return result;
+  }
+
+  while (c--) {
+    if (k[c]) {
+      var token = decode(a, c);
+      p = p.replace(new RegExp('\\b' + token + '\\b', 'g'), k[c]);
+    }
+  }
+  return p;
+}
 
 // Récupérer le titre depuis TMDB API
 function getTitleFromTmdb(tmdbId, mediaType) {
@@ -49,7 +78,7 @@ function getVidzyUrlFromMovie(yopId) {
   })
     .then(function(res) { return res.text(); })
     .then(function(html) {
-      var iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
+      var iframeMatch = html.match(/src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
       if (!iframeMatch) throw new Error('Iframe Vidzy non trouvée');
       return iframeMatch[1];
     });
@@ -64,7 +93,6 @@ function getEpisodeId(yopId, season, episode) {
   })
     .then(function(res) { return res.text(); })
     .then(function(html) {
-      // Pattern adapté à la structure réelle de YopFlix
       var pattern = /ep=(\d+)#playerZone[\s\S]{0,300}?ep-num-badge-number">(\d+)<\/span>/g;
       var match;
       var episodes = {};
@@ -87,26 +115,36 @@ function getVidzyUrlFromEpisode(yopId, season, epId) {
   })
     .then(function(res) { return res.text(); })
     .then(function(html) {
-      var iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
+      var iframeMatch = html.match(/src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
       if (!iframeMatch) throw new Error('Iframe Vidzy non trouvée');
       return iframeMatch[1];
     });
 }
 
-// Extraire le stream depuis Vidzy
+// Extraire le stream depuis Vidzy (avec dépaquetage)
 function getStreamFromVidzy(vidzyUrl) {
   return fetch(vidzyUrl, {
     headers: { 'User-Agent': UA, 'Referer': YOPFLIX_BASE + '/' }
   })
     .then(function(res) { return res.text(); })
     .then(function(html) {
-      // Chercher l'URL m3u8 directement
-      var m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
-      if (m3u8Match) return m3u8Match[0];
+      // Chercher le JavaScript packé (comme dans movix.js)
+      var packed = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\.split\(.\|.\)\)\)/g);
       
-      // Chercher le pattern vidzy.live/hls2
-      var hlsMatch = html.match(/https?:\/\/[a-z0-9]+\.vidzy\.live\/hls2\/[^"'\s]+\.m3u8[^"'\s]*/);
-      if (hlsMatch) return hlsMatch[0];
+      if (packed) {
+        for (var i = 0; i < packed.length; i++) {
+          var unpacked = unpackPacker(packed[i]);
+          if (unpacked) {
+            // Chercher l'URL m3u8 dans le code dépaqueté
+            var m3u8Match = unpacked.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
+            if (m3u8Match) return m3u8Match[0];
+          }
+        }
+      }
+      
+      // Fallback : chercher directement dans le HTML
+      var directMatch = html.match(/https?:\/\/[a-z0-9]+\.vidzy\.live\/hls2\/[^"'\s]+\.m3u8[^"'\s]*/);
+      if (directMatch) return directMatch[0];
       
       throw new Error('Aucune URL .m3u8 trouvée');
     });
@@ -120,7 +158,6 @@ function getStreams(tmdbId, mediaType, season, episode, title) {
   var s = season || 1;
   var e = episode || 1;
   
-  // Étape 1 : Récupérer le titre
   var titlePromise = (title && title !== '')
     ? Promise.resolve(title)
     : getTitleFromTmdb(tmdbId, mediaType);
