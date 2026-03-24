@@ -1,66 +1,75 @@
-var YOPFLIX_BASE = 'https://yopflix.my';
-var TMDB_KEY = 'a9e49b08496469614f9d0e74b1219084';
+var BASE = 'https://yopflix.my';
+var TMDB = 'https://api.themoviedb.org/3';
+var KEY = 'a9e49b08496469614f9d0e74b1219084';
 
-function unpack(p, a, c, k, e, d) {
-    while (c--) if (k[c]) p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
-    return p;
-}
+// Décodeur universel (Packer) validé en console
+function unpack(p,a,c,k,e,d){while(c--)if(k[c])p=p.replace(new RegExp('\\b'+c.toString(a)+'\\b','g'),k[c]);return p;}
 
 function getStreams(tmdbId, mediaType, season, episode, title) {
-    // 1. Obtenir le titre via TMDB
-    var urlMetadata = 'https://api.themoviedb.org/3/' + (mediaType === 'tv' ? 'tv' : 'movie') + '/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=fr-FR';
+    var type = (mediaType === 'tv') ? 'tv' : 'movie';
     
-    return fetch(urlMetadata)
-        .then(function(r) { return r.json(); })
-        .then(function(metadata) {
-            var name = metadata.title || metadata.name;
-            // 2. Chercher sur l'API de YopFlix
-            return fetch(YOPFLIX_BASE + '/api_search.php?q=' + encodeURIComponent(name));
-        })
-        .then(function(r) { return r.json(); })
-        .then(function(searchData) {
-            if (!searchData.results || searchData.results.length === 0) return [];
-            var id = searchData.results[0].id;
-            
-            // 3. Aller sur la page de lecture
-            var watchUrl = (mediaType === 'tv') ? 
-                YOPFLIX_BASE + '/series.php?id=' + id + '&season=' + season + '&ep=' + episode :
-                YOPFLIX_BASE + '/watch.php?id=' + id;
-                
-            return fetch(watchUrl);
-        })
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-            // 4. Trouver l'iframe Vidzy
-            var vidzyMatch = html.match(/src=["'](https?:\/\/vidzy\.[^"']+)["']/i);
-            if (!vidzyMatch) return [];
+    // 1. Recherche du titre via TMDB
+    return fetch(TMDB + '/' + type + '/' + tmdbId + '?api_key=' + KEY + '&language=fr-FR')
+    .then(function(r) { return r.json(); })
+    .then(function(m) {
+        var q = m.title || m.name;
+        // 2. Appel à l'API YopFlix (validé Status 200)
+        return fetch(BASE + '/api_search.php?q=' + encodeURIComponent(q));
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+        if (!data.results || !data.results[0]) return [];
+        var id = data.results[0].id;
+        
+        // 3. Construction de l'URL de la page (Film ou Série)
+        var watchUrl = (type === 'tv') ? 
+            BASE + '/series.php?id=' + id + '&season=' + season + '&ep=' + episode :
+            BASE + '/watch.php?id=' + id;
+        
+        return fetch(watchUrl, { headers: { 'Referer': BASE + '/' } });
+    })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+        // 4. Capture de l'iframe Vidzy (Structure HTML validée)
+        var frame = html.match(/src=["'](https?:\/\/vidzy\.[^"']+)["']/i);
+        if (!frame) return [];
 
-            return fetch(vidzyMatch[1], { headers: { 'Referer': YOPFLIX_BASE + '/' } });
-        })
-        .then(function(r) { return r.text(); })
-        .then(function(html) {
-            // 5. Décoder le lien vidéo
-            var packerMatch = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\.split\('\|'\)\)\)/i);
-            if (!packerMatch) return [];
+        // 5. Bypass du 403 Forbidden (Headers extraits de ta console Brave/Chrome)
+        return fetch(frame[1], { 
+            headers: { 
+                'Referer': BASE + '/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Sec-Fetch-Dest': 'iframe',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'cross-site'
+            } 
+        });
+    })
+    .then(function(r) { return r.text(); })
+    .then(function(html) {
+        // 6. Extraction et décodage du Packer (validé "CHAT GAGNÉ")
+        var p = html.match(/\('(.+)',\s*(\d+),\s*(\d+),\s*'(.+)'\.split/);
+        if (!p) return [];
 
-            // On extrait les arguments du packer pour les envoyer à notre fonction unpack
-            var args = packerMatch[0].match(/\('(.+)',\s*(\d+),\s*(\d+),\s*'(.+)'\.split/);
-            if (!args) return [];
+        var decoded = unpack(p[1], parseInt(p[2]), parseInt(p[3]), p[4].split('|'));
+        
+        // 7. Extraction du lien .m3u8 avec ses jetons (?t=...&s=...)
+        var m3u8 = decoded.match(/https?:\/\/[^"']+\.m3u8[^"']*/i);
+        if (!m3u8) return [];
 
-            var unzipped = unpack(args[1], parseInt(args[2]), parseInt(args[3]), args[4].split('|'));
-            var finalMatch = unzipped.match(/https?:\/\/[^"']+\.m3u8[^"']*/);
-            
-            if (!finalMatch) return [];
-
-            return [{
-                name: 'YopFlix (Vidzy)',
-                url: finalMatch[0],
-                quality: 'HD',
-                format: 'm3u8',
-                headers: { 'Referer': 'https://vidzy.live/', 'User-Agent': 'Mozilla/5.0' }
-            }];
-        })
-        .catch(function() { return []; });
+        return [{
+            name: 'YopFlix (Vidzy)',
+            url: m3u8[0],
+            quality: 'HD',
+            format: 'm3u8',
+            headers: { 
+                'Referer': 'https://vidzy.live/',
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            }
+        }];
+    })
+    .catch(function() { return []; });
 }
 
-if (typeof module !== 'undefined' && module.exports) { module.exports = { getStreams }; }
+if (typeof module !== 'undefined') module.exports = { getStreams };
