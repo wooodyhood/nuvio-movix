@@ -1,97 +1,195 @@
 // =============================================================
-// Provider Nuvio : YopFlix (VF/VOSTFR français)
-// Version : 1.0.0 - Emulation Navigateur + Vidzy Decoder
+// Provider Nuvio : YopFlix (VF français)
+// Version : 2.2.0 - Films + Séries
 // =============================================================
 
-var BASE = 'https://yopflix.my';
-var TMDB = 'https://api.themoviedb.org/3';
-var KEY = 'a9e49b08496469614f9d0e74b1219084';
-var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var YOPFLIX_BASE = 'https://yopflix.my';
+var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
 
-function resolveVidzy(embedUrl) {
-    return fetch(embedUrl, {
-        headers: { 'User-Agent': UA, 'Referer': BASE + '/' }
-    })
+// Récupérer le titre depuis TMDB
+function getTitleFromTmdb(tmdbId, mediaType) {
+  var url = mediaType === 'tv'
+    ? 'https://www.themoviedb.org/tv/' + tmdbId + '?language=fr-FR'
+    : 'https://www.themoviedb.org/movie/' + tmdbId + '?language=fr-FR';
+  
+  return fetch(url, {
+    headers: { 'User-Agent': UA, 'Accept-Language': 'fr-FR,fr;q=0.9' }
+  })
     .then(function(res) { return res.text(); })
     .then(function(html) {
-        // Extraction du Packer de Vidzy
-        var p = html.match(/\('(.+)',\s*(\d+),\s*(\d+),\s*'(.+)'\.split/);
-        if (!p) return null;
-
-        var unpacked = (function(p, a, c, k) {
-            while (c--) if (k[c]) p = p.replace(new RegExp('\\b' + c.toString(a) + '\\b', 'g'), k[c]);
-            return p;
-        })(p[1], parseInt(p[2]), parseInt(p[3]), p[4].split('|'));
-
-        var m3u8Match = unpacked.match(/file:["']([^"']+\.m3u8[^"']*)["']/i);
-        return m3u8Match ? m3u8Match[1] : null;
-    })
-    .catch(function() { return null; });
-}
-
-function getStreams(tmdbId, mediaType, season, episode) {
-    console.log('[YopFlix] Démarrage tmdbId=' + tmdbId);
-    var type = (mediaType === 'tv') ? 'tv' : 'movie';
-    
-    // Étape 1 : On récupère le titre sur TMDB
-    return fetch(TMDB + '/' + type + '/' + tmdbId + '?api_key=' + KEY + '&language=fr-FR')
-    .then(function(res) { return res.json(); })
-    .then(function(movie) {
-        var query = movie.title || movie.name;
-        
-        // Étape 2 : "Handshake" - On visite l'accueil pour simuler une session
-        return fetch(BASE + '/', { headers: { 'User-Agent': UA } })
-        .then(function() {
-            // Étape 3 : Recherche
-            return fetch(BASE + '/api_search.php?q=' + encodeURIComponent(query), {
-                headers: { 'Referer': BASE + '/', 'User-Agent': UA }
-            });
-        });
-    })
-    .then(function(res) { return res.json(); })
-    .then(function(data) {
-        if (!data.results || data.results.length === 0) throw new Error('Aucun résultat');
-        
-        var id = data.results[0].id;
-        var watchUrl = (type === 'tv') ? 
-            BASE + '/series.php?id=' + id + '&season=' + season + '&ep=' + episode :
-            BASE + '/watch.php?id=' + id;
-            
-        return fetch(watchUrl, { headers: { 'Referer': BASE + '/', 'User-Agent': UA } });
-    })
-    .then(function(res) { return res.text(); })
-    .then(function(html) {
-        // Étape 4 : Extraction de l'iframe Vidzy
-        var iframeMatch = html.match(/src=["'](https?:\/\/vidzy\.[^"']+)["']/i);
-        if (!iframeMatch) throw new Error('Iframe non trouvée');
-        
-        return resolveVidzy(iframeMatch[1]);
-    })
-    .then(function(directUrl) {
-        if (!directUrl) return [];
-
-        return [{
-            name: 'YopFlix',
-            title: 'Vidzy (VF)',
-            url: directUrl,
-            quality: 'HD',
-            format: 'm3u8',
-            headers: {
-                'Referer': 'https://vidzy.live/',
-                'User-Agent': UA,
-                'Origin': 'https://vidzy.live'
-            }
-        }];
-    })
-    .catch(function(err) {
-        console.error('[YopFlix] Erreur:', err.message);
-        return [];
+      var ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/);
+      if (ogTitle) {
+        var t = ogTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (t) return encodeURIComponent(t);
+      }
+      var pageTitle = html.match(/<title>([^<]+)<\/title>/);
+      if (pageTitle) {
+        var t = pageTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (t) return encodeURIComponent(t);
+      }
+      throw new Error('Titre non trouvé');
     });
 }
 
-// Export final
+// Récupérer l'ID YopFlix à partir du titre
+function getYopflixIdFromTitle(base, encodedTitle) {
+  var searchUrl = base + '/search/' + encodedTitle;
+  
+  return fetch(searchUrl, {
+    method: 'GET',
+    redirect: 'manual',
+    headers: { 'User-Agent': UA }
+  })
+    .then(function(res) {
+      var location = res.headers.get('location');
+      if (!location) throw new Error('Pas de redirection');
+      
+      var match = location.match(/id=(\d+)/);
+      if (!match) throw new Error('ID non trouvé');
+      
+      return match[1];
+    });
+}
+
+// === Gestion des SÉRIES ===
+
+// Récupérer le ep_id depuis la page de saison
+function getEpisodeId(base, yopId, season, episode) {
+  var url = base + '/series.php?id=' + yopId + '&season=' + season;
+  
+  return fetch(url, {
+    headers: { 'User-Agent': UA, 'Referer': base + '/' }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      // Pattern pour extraire ep=XXX et le numéro d'épisode
+      var pattern = /ep=(\d+)[^"]*"[^"]*ep-num-badge-number[^>]*>(\d+)<\//g;
+      var match;
+      var episodes = {};
+      while ((match = pattern.exec(html)) !== null) {
+        episodes[parseInt(match[2])] = match[1];
+      }
+      
+      var epId = episodes[episode];
+      if (!epId) throw new Error('S' + season + 'E' + episode + ' non trouvé');
+      return epId;
+    });
+}
+
+// Récupérer l'iframe Vidzy depuis une page d'épisode
+function getVidzyUrlFromEpisode(base, yopId, season, epId) {
+  var url = base + '/series.php?id=' + yopId + '&season=' + season + '&ep=' + epId;
+  
+  return fetch(url, {
+    headers: { 'User-Agent': UA, 'Referer': base + '/' }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      var iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
+      if (!iframeMatch) throw new Error('Iframe Vidzy non trouvée');
+      return iframeMatch[1];
+    });
+}
+
+// === Gestion des FILMS ===
+
+// Récupérer l'iframe Vidzy depuis une page film
+function getVidzyUrlFromMovie(base, yopId) {
+  return fetch(base + '/watch.php?id=' + yopId, {
+    headers: { 'User-Agent': UA, 'Referer': base + '/' }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      var iframeMatch = html.match(/<iframe[^>]+src=["'](https:\/\/vidzy\.live\/embed-[^"']+)["']/);
+      if (!iframeMatch) throw new Error('Iframe Vidzy non trouvée');
+      return iframeMatch[1];
+    });
+}
+
+// === Extraction du stream depuis Vidzy ===
+
+function getStreamUrlFromVidzy(embedUrl) {
+  return fetch(embedUrl, {
+    headers: { 'User-Agent': UA, 'Referer': YOPFLIX_BASE + '/' }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      // Chercher une URL .m3u8 directe
+      var m3u8Match = html.match(/https?:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
+      if (m3u8Match) return m3u8Match[0];
+      
+      // Chercher le pattern vidzy.live/hls2
+      var hlsMatch = html.match(/https?:\/\/[a-z0-9]+\.vidzy\.live\/hls2\/[^"'\s]+\.m3u8[^"'\s]*/);
+      if (hlsMatch) return hlsMatch[0];
+      
+      throw new Error('Aucune URL .m3u8 trouvée');
+    });
+}
+
+// === Fonction principale ===
+
+function getStreams(tmdbId, mediaType, season, episode, title) {
+  console.log('[YopFlix] tmdbId=' + tmdbId + ' type=' + mediaType);
+  
+  var isSeries = (mediaType === 'tv');
+  var s = season || 1;
+  var e = episode || 1;
+  
+  var titlePromise = (title && title !== '')
+    ? Promise.resolve(encodeURIComponent(title))
+    : getTitleFromTmdb(tmdbId, mediaType);
+  
+  return titlePromise
+    .then(function(encodedTitle) {
+      console.log('[YopFlix] Titre: ' + encodedTitle);
+      return getYopflixIdFromTitle(YOPFLIX_BASE, encodedTitle);
+    })
+    .then(function(yopId) {
+      console.log('[YopFlix] ID: ' + yopId);
+      
+      if (isSeries) {
+        // Gestion série
+        return getEpisodeId(YOPFLIX_BASE, yopId, s, e)
+          .then(function(epId) {
+            return getVidzyUrlFromEpisode(YOPFLIX_BASE, yopId, s, epId);
+          });
+      } else {
+        // Gestion film
+        return getVidzyUrlFromMovie(YOPFLIX_BASE, yopId);
+      }
+    })
+    .then(function(vidzyUrl) {
+      console.log('[YopFlix] Vidzy: ' + vidzyUrl);
+      return getStreamUrlFromVidzy(vidzyUrl);
+    })
+    .then(function(streamUrl) {
+      console.log('[YopFlix] Stream: ' + streamUrl);
+      
+      var titleDisplay = isSeries 
+        ? 'S' + s + 'E' + e + ' - VF'
+        : 'VF';
+      
+      return [{
+        name: 'YopFlix',
+        title: titleDisplay,
+        url: streamUrl,
+        quality: 'HD',
+        format: 'm3u8',
+        headers: {
+          'User-Agent': UA,
+          'Referer': 'https://vidzy.live/',
+          'Origin': 'https://vidzy.live'
+        }
+      }];
+    })
+    .catch(function(err) {
+      console.error('[YopFlix] Erreur: ' + err.message);
+      return [];
+    });
+}
+
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { getStreams };
+  module.exports = { getStreams };
 } else {
-    global.getStreams = getStreams;
+  global.getStreams = getStreams;
 }
