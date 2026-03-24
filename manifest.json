@@ -43,25 +43,6 @@
         "mp4",
         "m3u8"
       ]
-    },
-    {
-      "id": "anime-sama-vf",
-      "name": "Anime-Sama VF",
-      "description": "Animes en VF depuis anime-sama.to",
-      "version": "1.0.0",
-      "author": "wooodyhood",
-      "supportedTypes": [
-        "tv"
-      ],
-      "filename": "providers/anime-sama.js",
-      "enabled": true,
-      "logo": "",
-      "contentLanguage": [
-        "fr"
-      ],
-      "formats": [
-        "mp4"
-      ]
     }
   ]
 }
