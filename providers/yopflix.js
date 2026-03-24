@@ -1,13 +1,46 @@
 // =============================================================
 // Provider Nuvio : YopFlix (VF français)
-// Version : 1.2.0 - Titre via TMDB + détection domaine Telegram
+// Version : 1.3.0 - Dépacking sans eval
 // =============================================================
  
 var YOPFLIX_DEFAULT = 'https://yopflix.my';
 var YOPFLIX_TELEGRAM = 'https://t.me/s/YopFlix';
 var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
  
-// Récupérer le titre depuis la page TMDB publique
+// Dépacker le format P,A,C,K,E,R sans eval
+function unpackPacker(packed) {
+  // Extraire les paramètres p,a,c,k,e,d
+  var match = packed.match(/}\('(.+)',(\d+),(\d+),'([^']+)'\.split\('\|'\)/);
+  if (!match) return null;
+ 
+  var p = match[1];
+  var a = parseInt(match[2]);
+  var c = parseInt(match[3]);
+  var k = match[4].split('|');
+ 
+  // Fonction de décodage de base
+  function decode(base, num) {
+    var chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
+    var result = '';
+    var b = base;
+    do {
+      result = chars[num % b] + result;
+      num = Math.floor(num / b);
+    } while (num > 0);
+    return result;
+  }
+ 
+  // Remplacer chaque token
+  while (c--) {
+    if (k[c]) {
+      var token = decode(a, c);
+      p = p.replace(new RegExp('\\b' + token + '\\b', 'g'), k[c]);
+    }
+  }
+  return p;
+}
+ 
+// Récupérer le titre depuis TMDB public
 function getTitleFromTmdb(tmdbId, mediaType) {
   var url = mediaType === 'tv'
     ? 'https://www.themoviedb.org/tv/' + tmdbId + '?language=fr-FR'
@@ -15,10 +48,7 @@ function getTitleFromTmdb(tmdbId, mediaType) {
  
   return fetch(url, {
     method: 'GET',
-    headers: {
-      'User-Agent': UA,
-      'Accept-Language': 'fr-FR,fr;q=0.9'
-    }
+    headers: { 'User-Agent': UA, 'Accept-Language': 'fr-FR,fr;q=0.9' }
   })
     .then(function(res) { return res.text(); })
     .then(function(html) {
@@ -53,13 +83,6 @@ function detectDomainFromTelegram() {
       return domains[domains.length - 1].replace(/\/$/, '');
     })
     .catch(function() { return null; });
-}
- 
-// Dépacker le JS obfusqué de Vidzy
-function unpack(packed) {
-  try {
-    return eval(packed.replace(/^eval/, '')) || '';
-  } catch(e) { return ''; }
 }
  
 // Rechercher sur YopFlix par titre
@@ -142,7 +165,7 @@ function getVidzyUrlFromEpisode(base, yopId, season, epId) {
     });
 }
  
-// Extraire le stream depuis Vidzy
+// Extraire le stream depuis Vidzy sans eval
 function getStreamFromVidzy(vidzyUrl) {
   return fetch(vidzyUrl, {
     method: 'GET',
@@ -153,15 +176,27 @@ function getStreamFromVidzy(vidzyUrl) {
       return res.text();
     })
     .then(function(html) {
+      // Essayer d'abord de trouver le m3u8 directement sans dépacking
+      var directM3u8 = html.match(/https:\/\/[^"']+\.m3u8[^"']*/);
+      var directMp4 = html.match(/https:\/\/[^"']+\.mp4[^"']*/);
+      if (directM3u8) return { url: directM3u8[0], format: 'm3u8' };
+      if (directMp4) return { url: directMp4[0], format: 'mp4' };
+ 
+      // Dépacker sans eval
       var packed = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\.split\('\|'\)\)\)/g);
       if (!packed) throw new Error('JS packed non trouvé');
-      var unpacked = unpack(packed[0]);
+ 
+      var unpacked = unpackPacker(packed[0]);
       if (!unpacked) throw new Error('Dépackage échoué');
-      var m3u8 = unpacked.match(/https:\/\/[^"']+\.m3u8[^"']*/);
-      var mp4 = unpacked.match(/https:\/\/[^"']+\.mp4[^"']*/);
+ 
+      console.log('[YopFlix] Dépacked (200):', unpacked.substring(0, 200));
+ 
+      var m3u8 = unpacked.match(/https:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
+      var mp4 = unpacked.match(/https:\/\/[^"'\s]+\.mp4[^"'\s]*/);
       if (m3u8) return { url: m3u8[0], format: 'm3u8' };
       if (mp4) return { url: mp4[0], format: 'mp4' };
-      throw new Error('Stream non trouvé');
+ 
+      throw new Error('Stream non trouvé après dépacking');
     });
 }
  
@@ -199,7 +234,6 @@ function tryGetStreams(base, tmdbId, mediaType, season, episode, title) {
 function getStreams(tmdbId, mediaType, season, episode, title) {
   console.log('[YopFlix] tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode + ' title=' + title);
  
-  // Étape 1 : récupérer le titre depuis TMDB si pas fourni
   var titlePromise = (title && title !== '')
     ? Promise.resolve(title)
     : getTitleFromTmdb(tmdbId, mediaType).catch(function() { return null; });
@@ -209,10 +243,8 @@ function getStreams(tmdbId, mediaType, season, episode, title) {
       if (!resolvedTitle) throw new Error('Titre introuvable');
       console.log('[YopFlix] Titre: ' + resolvedTitle);
  
-      // Étape 2 : essayer avec le domaine par défaut
       return tryGetStreams(YOPFLIX_DEFAULT, tmdbId, mediaType, season, episode, resolvedTitle)
         .catch(function(err) {
-          // Étape 3 : domaine en échec, récupérer le nouveau depuis Telegram
           console.log('[YopFlix] Echec (' + err.message + '), tentative Telegram...');
           return detectDomainFromTelegram().then(function(newBase) {
             if (!newBase) throw new Error('Domaine introuvable');
