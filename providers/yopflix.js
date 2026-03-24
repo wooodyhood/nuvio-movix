@@ -1,6 +1,6 @@
 // =============================================================
 // Provider Nuvio : YopFlix (VF français)
-// Version : 1.3.0 - Dépacking sans eval
+// Version : 1.4.0 - Regex corrigé pour apostrophes échappées
 // =============================================================
  
 var YOPFLIX_DEFAULT = 'https://yopflix.my';
@@ -9,28 +9,29 @@ var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, li
  
 // Dépacker le format P,A,C,K,E,R sans eval
 function unpackPacker(packed) {
-  // Extraire les paramètres p,a,c,k,e,d
-  var match = packed.match(/}\('(.+)',(\d+),(\d+),'([^']+)'\.split\('\|'\)/);
+  // Gérer les apostrophes échappées (\') ou normales (')
+  var match = packed.match(/}\([\\'"](.+?)[\\'"],(\d+),(\d+),[\\'"](.+?)[\\'"]\.split\([\\']\|[\\']\)/);
+  if (!match) {
+    // Essayer pattern alternatif
+    match = packed.match(/}\('([\s\S]+?)',(\d+),(\d+),'([\s\S]+?)'\.split\('\|'\)\)/);
+  }
   if (!match) return null;
  
-  var p = match[1];
+  var p = match[1].replace(/\\'/g, "'");
   var a = parseInt(match[2]);
   var c = parseInt(match[3]);
-  var k = match[4].split('|');
+  var k = match[4].replace(/\\'/g, "'").split('|');
  
-  // Fonction de décodage de base
   function decode(base, num) {
     var chars = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ';
     var result = '';
-    var b = base;
     do {
-      result = chars[num % b] + result;
-      num = Math.floor(num / b);
+      result = chars[num % base] + result;
+      num = Math.floor(num / base);
     } while (num > 0);
     return result;
   }
  
-  // Remplacer chaque token
   while (c--) {
     if (k[c]) {
       var token = decode(a, c);
@@ -165,7 +166,7 @@ function getVidzyUrlFromEpisode(base, yopId, season, epId) {
     });
 }
  
-// Extraire le stream depuis Vidzy sans eval
+// Extraire le stream depuis Vidzy
 function getStreamFromVidzy(vidzyUrl) {
   return fetch(vidzyUrl, {
     method: 'GET',
@@ -176,14 +177,8 @@ function getStreamFromVidzy(vidzyUrl) {
       return res.text();
     })
     .then(function(html) {
-      // Essayer d'abord de trouver le m3u8 directement sans dépacking
-      var directM3u8 = html.match(/https:\/\/[^"']+\.m3u8[^"']*/);
-      var directMp4 = html.match(/https:\/\/[^"']+\.mp4[^"']*/);
-      if (directM3u8) return { url: directM3u8[0], format: 'm3u8' };
-      if (directMp4) return { url: directMp4[0], format: 'mp4' };
- 
-      // Dépacker sans eval
-      var packed = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\.split\('\|'\)\)\)/g);
+      // Chercher le packed
+      var packed = html.match(/eval\(function\(p,a,c,k,e,d\)[\s\S]+?\.split\(.\|.\)\)\)/g);
       if (!packed) throw new Error('JS packed non trouvé');
  
       var unpacked = unpackPacker(packed[0]);
@@ -191,8 +186,8 @@ function getStreamFromVidzy(vidzyUrl) {
  
       console.log('[YopFlix] Dépacked (200):', unpacked.substring(0, 200));
  
-      var m3u8 = unpacked.match(/https:\/\/[^"'\s]+\.m3u8[^"'\s]*/);
-      var mp4 = unpacked.match(/https:\/\/[^"'\s]+\.mp4[^"'\s]*/);
+      var m3u8 = unpacked.match(/https:\/\/[^"'\s\\]+\.m3u8[^"'\s\\]*/);
+      var mp4 = unpacked.match(/https:\/\/[^"'\s\\]+\.mp4[^"'\s\\]*/);
       if (m3u8) return { url: m3u8[0], format: 'm3u8' };
       if (mp4) return { url: mp4[0], format: 'mp4' };
  
