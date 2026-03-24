@@ -1,11 +1,40 @@
 // =============================================================
 // Provider Nuvio : YopFlix (VF français)
-// Version : 1.1.0 - Détection domaine via Telegram
+// Version : 1.2.0 - Titre via TMDB + détection domaine Telegram
 // =============================================================
  
 var YOPFLIX_DEFAULT = 'https://yopflix.my';
 var YOPFLIX_TELEGRAM = 'https://t.me/s/YopFlix';
 var UA = 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36';
+ 
+// Récupérer le titre depuis la page TMDB publique
+function getTitleFromTmdb(tmdbId, mediaType) {
+  var url = mediaType === 'tv'
+    ? 'https://www.themoviedb.org/tv/' + tmdbId + '?language=fr-FR'
+    : 'https://www.themoviedb.org/movie/' + tmdbId + '?language=fr-FR';
+ 
+  return fetch(url, {
+    method: 'GET',
+    headers: {
+      'User-Agent': UA,
+      'Accept-Language': 'fr-FR,fr;q=0.9'
+    }
+  })
+    .then(function(res) { return res.text(); })
+    .then(function(html) {
+      var ogTitle = html.match(/<meta property="og:title" content="([^"]+)"/);
+      if (ogTitle) {
+        var t = ogTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (t) return t;
+      }
+      var pageTitle = html.match(/<title>([^<]+)<\/title>/);
+      if (pageTitle) {
+        var t = pageTitle[1].replace(/\s*[—–-]\s*(The Movie Database|TMDB).*$/i, '').trim();
+        if (t) return t;
+      }
+      throw new Error('Titre non trouvé sur TMDB');
+    });
+}
  
 // Détecter le domaine actuel depuis Telegram
 function detectDomainFromTelegram() {
@@ -21,7 +50,6 @@ function detectDomainFromTelegram() {
         return !url.includes('t.me') && !url.includes('telegram');
       });
       if (domains.length === 0) return null;
-      // Prendre le dernier domaine mentionné (le plus récent)
       return domains[domains.length - 1].replace(/\/$/, '');
     })
     .catch(function() { return null; });
@@ -34,7 +62,7 @@ function unpack(packed) {
   } catch(e) { return ''; }
 }
  
-// Rechercher le film/série sur YopFlix par titre
+// Rechercher sur YopFlix par titre
 function searchYopflix(base, title) {
   return fetch(base + '/api_search.php?q=' + encodeURIComponent(title), {
     method: 'GET',
@@ -73,7 +101,7 @@ function getVidzyUrlFromMovie(base, yopId) {
     });
 }
  
-// Récupérer le mapping ep_num → ep_id pour une saison
+// Récupérer le ep_id depuis le numéro d'épisode
 function getEpisodeId(base, yopId, season, episode) {
   return fetch(base + '/series.php?id=' + yopId + '&season=' + season, {
     method: 'GET',
@@ -114,7 +142,7 @@ function getVidzyUrlFromEpisode(base, yopId, season, epId) {
     });
 }
  
-// Extraire le stream m3u8/mp4 depuis la page Vidzy
+// Extraire le stream depuis Vidzy
 function getStreamFromVidzy(vidzyUrl) {
   return fetch(vidzyUrl, {
     method: 'GET',
@@ -137,7 +165,7 @@ function getStreamFromVidzy(vidzyUrl) {
     });
 }
  
-function tryGetStreams(base, mediaType, season, episode, title) {
+function tryGetStreams(base, tmdbId, mediaType, season, episode, title) {
   return searchYopflix(base, title)
     .then(function(result) {
       if (mediaType === 'tv') {
@@ -149,7 +177,7 @@ function tryGetStreams(base, mediaType, season, episode, title) {
       return getVidzyUrlFromMovie(base, result.id);
     })
     .then(function(vidzyUrl) {
-      console.log('[YopFlix] Vidzy URL: ' + vidzyUrl);
+      console.log('[YopFlix] Vidzy: ' + vidzyUrl);
       return getStreamFromVidzy(vidzyUrl);
     })
     .then(function(stream) {
@@ -171,22 +199,28 @@ function tryGetStreams(base, mediaType, season, episode, title) {
 function getStreams(tmdbId, mediaType, season, episode, title) {
   console.log('[YopFlix] tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode + ' title=' + title);
  
-  if (!title || title === '') {
-    console.error('[YopFlix] Titre manquant');
-    return Promise.resolve([]);
-  }
+  // Étape 1 : récupérer le titre depuis TMDB si pas fourni
+  var titlePromise = (title && title !== '')
+    ? Promise.resolve(title)
+    : getTitleFromTmdb(tmdbId, mediaType).catch(function() { return null; });
  
-  // Étape 1 : essayer avec le domaine par défaut
-  return tryGetStreams(YOPFLIX_DEFAULT, mediaType, season, episode, title)
-    .catch(function(err) {
-      // Étape 2 : domaine en échec, récupérer le nouveau depuis Telegram
-      console.log('[YopFlix] Echec (' + err.message + '), tentative Telegram...');
-      return detectDomainFromTelegram().then(function(newBase) {
-        if (!newBase) throw new Error('Domaine introuvable sur Telegram');
-        if (newBase === YOPFLIX_DEFAULT) throw new Error('Même domaine, toujours en échec');
-        console.log('[YopFlix] Nouveau domaine: ' + newBase);
-        return tryGetStreams(newBase, mediaType, season, episode, title);
-      });
+  return titlePromise
+    .then(function(resolvedTitle) {
+      if (!resolvedTitle) throw new Error('Titre introuvable');
+      console.log('[YopFlix] Titre: ' + resolvedTitle);
+ 
+      // Étape 2 : essayer avec le domaine par défaut
+      return tryGetStreams(YOPFLIX_DEFAULT, tmdbId, mediaType, season, episode, resolvedTitle)
+        .catch(function(err) {
+          // Étape 3 : domaine en échec, récupérer le nouveau depuis Telegram
+          console.log('[YopFlix] Echec (' + err.message + '), tentative Telegram...');
+          return detectDomainFromTelegram().then(function(newBase) {
+            if (!newBase) throw new Error('Domaine introuvable');
+            if (newBase === YOPFLIX_DEFAULT) throw new Error('Même domaine');
+            console.log('[YopFlix] Nouveau domaine: ' + newBase);
+            return tryGetStreams(newBase, tmdbId, mediaType, season, episode, resolvedTitle);
+          });
+        });
     })
     .catch(function(err) {
       console.error('[YopFlix] Erreur globale: ' + (err.message || err));
