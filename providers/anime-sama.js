@@ -13,11 +13,70 @@
 //  - Compatible : Nuvio TV (Android TV / webOS / Tizen) + Mobile
 // =============================================================
 
-var ANIMESAMA_BASE = 'https://anime-sama.to';
+// Portail officiel listant les domaines actifs
+var ANIMESAMA_PW = 'https://anime-sama.pw/';
+// Domaine de fallback connu (mis à jour si anime-sama.pw est inaccessible)
+var ANIMESAMA_FALLBACK = 'https://anime-sama.to';
+// Cache mémoire du domaine résolu (valable pour la durée de la session)
+var _resolvedBase = null;
+
 var TMDB_API_KEY = '8265bd1679663a7ea12ac168da84d2e8';
 var TMDB_BASE = 'https://api.themoviedb.org/3';
 var ARMSYNC_BASE = 'https://arm.haglund.dev/api/v2';
 var CINEMETA_BASE = 'https://v3-cinemeta.strem.io';
+
+// =============================================================
+// Résolution dynamique du domaine Anime-Sama via anime-sama.pw
+// =============================================================
+
+function resolveAnimeSamaBase() {
+    // Retourner le cache si déjà résolu
+    if (_resolvedBase) return Promise.resolve(_resolvedBase);
+
+    return fetchWithTimeout(ANIMESAMA_PW, {
+        headers: {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+        }
+    }, 6000).then(function(res) {
+        if (!res || !res.text) {
+            console.log('[Anime-Sama] anime-sama.pw inaccessible, fallback: ' + ANIMESAMA_FALLBACK);
+            _resolvedBase = ANIMESAMA_FALLBACK;
+            return _resolvedBase;
+        }
+
+        // Chercher les liens anime-sama.* dans la page (ex: https://anime-sama.tv)
+        var domainRegex = /https?:\/\/anime-sama\.[a-z]{2,6}(?=[\/\s"'<]|$)/gi;
+        var matches = res.text.match(domainRegex) || [];
+
+        // Filtrer : exclure anime-sama.pw lui-même et les domaines connus anciens/invalides
+        var excluded = ['anime-sama.pw', 'anime-sama.fr', 'anime-sama.org', 'anime-sama.eu', 'anime-sama.com', 'anime-sama.store'];
+        var candidates = [];
+        matches.forEach(function(url) {
+            var clean = url.replace(/\/+$/, '').toLowerCase();
+            var isExcluded = excluded.some(function(ex) { return clean.includes(ex); });
+            if (!isExcluded && candidates.indexOf(clean) === -1) {
+                candidates.push(clean);
+            }
+        });
+
+        if (candidates.length === 0) {
+            console.log('[Anime-Sama] Aucun domaine trouvé sur anime-sama.pw, fallback: ' + ANIMESAMA_FALLBACK);
+            _resolvedBase = ANIMESAMA_FALLBACK;
+            return _resolvedBase;
+        }
+
+        // Prendre le dernier domaine listé (le plus récent)
+        var resolved = candidates[candidates.length - 1];
+        console.log('[Anime-Sama] Domaine résolu: ' + resolved + ' (candidates: ' + candidates.join(', ') + ')');
+        _resolvedBase = resolved;
+        return _resolvedBase;
+    }).catch(function() {
+        console.log('[Anime-Sama] Erreur résolution domaine, fallback: ' + ANIMESAMA_FALLBACK);
+        _resolvedBase = ANIMESAMA_FALLBACK;
+        return _resolvedBase;
+    });
+}
 
 var BROWSER_HEADERS = {
     'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
@@ -225,13 +284,13 @@ function slugify(title) {
         .replace(/^-|-$/g, '');
 }
 
-function searchAnimeSamaSlugs(query) {
-    var url = ANIMESAMA_BASE + '/template-php/defaut/fetch.php';
+function searchAnimeSamaSlugs(query, base) {
+    var url = base + '/template-php/defaut/fetch.php';
     return fetchWithTimeout(url, {
         method: 'POST',
         headers: Object.assign({}, BROWSER_HEADERS, {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': ANIMESAMA_BASE
+            'Referer': base
         }),
         body: 'query=' + encodeURIComponent(query)
     }).then(function(res) {
@@ -530,18 +589,88 @@ function resolveStream(streamObj, depth) {
 }
 
 // =============================================================
+// Détection dynamique des langues disponibles sur Anime-Sama
+// =============================================================
+
+// Toutes les langues connues sur Anime-Sama (dans l'ordre de priorité)
+var ALL_KNOWN_LANGS = ['vf', 'vf1', 'vf2', 'vf3', 'vostfr', 'vostfr1', 'vostfr2', 'va', 'var', 'vkr', 'vcn', 'vqc'];
+// Langues françaises à prioriser
+var FRENCH_LANGS = ['vf', 'vf1', 'vf2', 'vf3', 'vqc'];
+
+function detectAvailableLangs(slug, season, base) {
+    var pageUrl = base + '/catalogue/' + slug + '/saison' + season + '/vf/';
+    // On charge la page principale du catalogue pour détecter les drapeaux/langues
+    return fetchWithTimeout(pageUrl, {
+        headers: Object.assign({}, BROWSER_HEADERS, { 'Referer': base })
+    }, 8000).then(function(res) {
+        if (!res) {
+            // Fallback : essayer la page racine du catalogue
+            return fetchWithTimeout(
+                base + '/catalogue/' + slug + '/',
+                { headers: Object.assign({}, BROWSER_HEADERS, { 'Referer': base }) },
+                8000
+            );
+        }
+        return res;
+    }).then(function(res) {
+        if (!res) return ALL_KNOWN_LANGS.slice(0, 2); // fallback minimal
+
+        // Extraire toutes les langues depuis les liens /catalogue/slug/saison*/LANG
+        var langs = [];
+        var langRegex = /\/catalogue\/[^/"']+\/saison\d+\/([a-z0-9]+)[/"']/gi;
+        var match;
+        while ((match = langRegex.exec(res.text)) !== null) {
+            var lang = match[1].toLowerCase();
+            if (ALL_KNOWN_LANGS.indexOf(lang) !== -1 && langs.indexOf(lang) === -1) {
+                langs.push(lang);
+            }
+        }
+
+        // Si rien trouvé via saison, chercher aussi sans saison
+        if (langs.length === 0) {
+            var langRegex2 = /\/catalogue\/[^/"']+\/([a-z0-9]+)\/episodes\.js/gi;
+            while ((match = langRegex2.exec(res.text)) !== null) {
+                var lang2 = match[1].toLowerCase();
+                if (ALL_KNOWN_LANGS.indexOf(lang2) !== -1 && langs.indexOf(lang2) === -1) {
+                    langs.push(lang2);
+                }
+            }
+        }
+
+        if (langs.length === 0) {
+            console.log('[Anime-Sama] Détection langues échouée, fallback complet');
+            return ALL_KNOWN_LANGS;
+        }
+
+        // Trier : langues françaises en premier
+        langs.sort(function(a, b) {
+            var aFr = FRENCH_LANGS.indexOf(a) !== -1;
+            var bFr = FRENCH_LANGS.indexOf(b) !== -1;
+            if (aFr && !bFr) return -1;
+            if (!aFr && bFr) return 1;
+            return ALL_KNOWN_LANGS.indexOf(a) - ALL_KNOWN_LANGS.indexOf(b);
+        });
+
+        console.log('[Anime-Sama] Langues détectées pour ' + slug + ': ' + langs.join(', '));
+        return langs;
+    }).catch(function() {
+        return ALL_KNOWN_LANGS;
+    });
+}
+
+// =============================================================
 // Récupération des épisodes depuis episodes.js d'Anime-Sama
 // =============================================================
 
-function fetchEpisodesJs(slug, season, lang) {
+function fetchEpisodesJs(slug, season, lang, base) {
     var urls = [
-        ANIMESAMA_BASE + '/catalogue/' + slug + '/saison' + season + '/' + lang + '/episodes.js',
-        ANIMESAMA_BASE + '/catalogue/' + slug + '/' + lang + '/episodes.js'
+        base + '/catalogue/' + slug + '/saison' + season + '/' + lang + '/episodes.js',
+        base + '/catalogue/' + slug + '/' + lang + '/episodes.js'
     ];
 
     function tryUrl(i) {
         if (i >= urls.length) return Promise.resolve(null);
-        return fetchHtml(urls[i], { headers: Object.assign({}, BROWSER_HEADERS, { 'Referer': ANIMESAMA_BASE }) })
+        return fetchHtml(urls[i], { headers: Object.assign({}, BROWSER_HEADERS, { 'Referer': base }) })
             .then(function(text) { return { text: text, url: urls[i] }; })
             .catch(function() { return tryUrl(i + 1); });
     }
@@ -552,7 +681,7 @@ function fetchEpisodesJs(slug, season, lang) {
 // Extraction des streams depuis un episodes.js
 // =============================================================
 
-function extractStreamsFromEpisodesJs(jsText, sourceUrl, season, episode, absoluteEpisode, lang) {
+function extractStreamsFromEpisodesJs(jsText, sourceUrl, season, episode, absoluteEpisode, lang, base) {
     var streams = [];
     var varRegex = /var\s+([a-z0-9]+)\s*=\s*\[([\s\S]*?)\s*\];/gm;
     var varMatch;
@@ -586,7 +715,7 @@ function extractStreamsFromEpisodesJs(jsText, sourceUrl, season, episode, absolu
             title: detectPlayerName(epUrl) + ' - Ep ' + episode,
             url: epUrl,
             quality: 'HD',
-            headers: { 'Referer': ANIMESAMA_BASE }
+            headers: { 'Referer': base }
         });
     }
     return streams;
@@ -599,10 +728,11 @@ function extractStreamsFromEpisodesJs(jsText, sourceUrl, season, episode, absolu
 function findStreams(tmdbId, mediaType, season, episode) {
     var s = season || 1;
     var e = episode || 1;
-    var langs = ['vostfr', 'vf'];
     var allRawStreams = [];
 
-    return getTmdbTitles(tmdbId, mediaType).then(function(titles) {
+    // Résoudre le domaine actif en premier, puis enchaîner la logique principale
+    return resolveAnimeSamaBase().then(function(base) {
+        return getTmdbTitles(tmdbId, mediaType).then(function(titles) {
         if (!titles || titles.length === 0) {
             console.log('[Anime-Sama] Aucun titre TMDB trouvé');
             return [];
@@ -618,24 +748,28 @@ function findStreams(tmdbId, mediaType, season, episode) {
             var primarySlugs = titles.map(slugify);
             console.log('[Anime-Sama] Slugs primaires: ' + primarySlugs.join(', '));
 
-            // Pour chaque slug, récupérer les épisodes de chaque langue
+            // Pour chaque slug : détecter les langues dispo puis récupérer les streams
             function fetchForSlugs(slugs) {
-                var fetches = [];
-                slugs.forEach(function(slug) {
-                    langs.forEach(function(lang) {
-                        fetches.push(
-                            fetchEpisodesJs(slug, s, lang).then(function(result) {
+                // Détecter les langues pour chaque slug en parallèle
+                return Promise.all(slugs.map(function(slug) {
+                    return detectAvailableLangs(slug, s, base).then(function(langs) {
+                        console.log('[Anime-Sama] ' + slug + ' → langues: ' + langs.join(', '));
+                        return Promise.all(langs.map(function(lang) {
+                            return fetchEpisodesJs(slug, s, lang, base).then(function(result) {
                                 if (!result) return [];
                                 return extractStreamsFromEpisodesJs(
-                                    result.text, result.url, s, e, absoluteEpisode, lang
+                                    result.text, result.url, s, e, absoluteEpisode, lang, base
                                 );
-                            }).catch(function() { return []; })
-                        );
+                            }).catch(function() { return []; });
+                        }));
+                    }).then(function(results) {
+                        var streams = [];
+                        results.forEach(function(r) { streams = streams.concat(r); });
+                        return streams;
                     });
-                });
-                return Promise.all(fetches).then(function(results) {
+                })).then(function(allResults) {
                     var streams = [];
-                    results.forEach(function(r) { streams = streams.concat(r); });
+                    allResults.forEach(function(r) { streams = streams.concat(r); });
                     return streams;
                 });
             }
@@ -646,11 +780,11 @@ function findStreams(tmdbId, mediaType, season, episode) {
                 // Fallback : recherche via l'API Anime-Sama
                 console.log('[Anime-Sama] Fallback : recherche API pour ' + titles[0]);
                 return Promise.all(titles.map(function(t) {
-                    return searchAnimeSamaSlugs(t);
+                    return searchAnimeSamaSlugs(t, base);
                 })).then(function(results) {
                     var foundSlugs = [];
                     var seenPrimary = {};
-                    primarySlugs.forEach(function(s) { seenPrimary[s] = true; });
+                    primarySlugs.forEach(function(slug) { seenPrimary[slug] = true; });
 
                     results.forEach(function(slugList) {
                         slugList.forEach(function(slug) {
@@ -671,28 +805,22 @@ function findStreams(tmdbId, mediaType, season, episode) {
         });
     }).then(function(rawStreams) {
         if (rawStreams.length === 0) return [];
-
-        // Résoudre tous les streams en parallèle
         console.log('[Anime-Sama] Résolution de ' + rawStreams.length + ' streams...');
         return Promise.all(rawStreams.map(function(stream) {
             return resolveStream(stream).catch(function() { return null; });
-        }));
-    }).then(function(resolved) {
-        // Garder uniquement les streams directs valides
-        var valid = (resolved || []).filter(function(s) { return s && s.isDirect; });
-        console.log('[Anime-Sama] Streams valides: ' + valid.length);
-
-        // Trier : VF en premier
-        valid.sort(function(a, b) {
-            var isVf = function(s) { return s && (s.name + ' ' + (s.title || '')).toUpperCase().includes('VF'); };
-            var aVf = isVf(a), bVf = isVf(b);
-            if (aVf && !bVf) return -1;
-            if (!aVf && bVf) return 1;
-            return 0;
+        })).then(function(resolved) {
+            var valid = (resolved || []).filter(function(s) { return s && s.isDirect; });
+            console.log('[Anime-Sama] Streams valides: ' + valid.length);
+            valid.sort(function(a, b) {
+                var isVf = function(s) { return s && (s.name + ' ' + (s.title || '')).toUpperCase().includes('VF'); };
+                var aVf = isVf(a), bVf = isVf(b);
+                if (aVf && !bVf) return -1;
+                if (!aVf && bVf) return 1;
+                return 0;
+            });
+            return valid;
         });
-
-        return valid;
-    });
+    }); // fin resolveAnimeSamaBase
 }
 
 // =============================================================
