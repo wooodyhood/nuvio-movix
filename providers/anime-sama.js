@@ -8,9 +8,17 @@
 // --- Résolution dynamique du domaine ---
 // Le portail anime-sama.pw liste toujours le domaine actif.
 // En cas d'échec, on bascule sur le fallback connu.
-var ANIMESAMA_PW       = 'https://anime-sama.pw/';
-var ANIMESAMA_FALLBACK = 'https://anime-sama.tv';
-var _cachedBase        = null; // cache session
+var ANIMESAMA_PW = 'https://anime-sama.pw/';
+
+// Domaines testés en parallèle si le portail est inaccessible.
+// Mis à jour régulièrement — mettre le domaine le plus récent en premier.
+var ANIMESAMA_CANDIDATES = [
+    'https://anime-sama.fr',
+    'https://anime-sama.tv',
+    'https://anime-sama.to'
+];
+
+var _cachedBase = null; // cache session
 
 // --- TMDB / Cinemeta ---
 var TMDB_KEY      = '8265bd1679663a7ea12ac168da84d2e8';
@@ -80,35 +88,57 @@ function fetchJson(url, opts) {
 function resolveBase() {
     if (_cachedBase) return Promise.resolve(_cachedBase);
 
-    return safeFetch(ANIMESAMA_PW, { headers: { 'User-Agent': UA } }, 6000)
+    // Étape 1 : essayer anime-sama.pw pour récupérer le domaine actif
+    return safeFetch(ANIMESAMA_PW, { headers: { 'User-Agent': UA } }, 5000)
         .then(function(res) {
-            if (!res) return ANIMESAMA_FALLBACK;
-
-            // Extraire tous les liens anime-sama.EXTENSION
-            var found = [];
-            var rx = /https?:\/\/anime-sama\.[a-z]{2,6}/gi;
-            var m;
-            while ((m = rx.exec(res.text)) !== null) {
-                var url = m[0].toLowerCase();
-                // Exclure le portail lui-même et les anciens domaines
-                var bad = ['anime-sama.pw', 'anime-sama.fr', 'anime-sama.org',
-                           'anime-sama.eu', 'anime-sama.com', 'anime-sama.store'];
-                if (!bad.some(function(b) { return url.includes(b); }) && found.indexOf(url) === -1) {
-                    found.push(url);
+            if (res && res.text) {
+                var found = [];
+                var rx = /https?:\/\/anime-sama\.[a-z]{2,6}/gi;
+                var m;
+                // Ne pas exclure .fr — c'est un domaine valide !
+                var excluded = ['anime-sama.pw', 'anime-sama.org', 'anime-sama.eu',
+                                'anime-sama.com', 'anime-sama.store'];
+                while ((m = rx.exec(res.text)) !== null) {
+                    var url = m[0].toLowerCase().replace(/\/+$/, '');
+                    if (!excluded.some(function(b) { return url.includes(b); }) &&
+                        found.indexOf(url) === -1) {
+                        found.push(url);
+                    }
+                }
+                if (found.length > 0) {
+                    // Prendre le dernier lien trouvé (le plus récent dans la page)
+                    var resolved = found[found.length - 1];
+                    console.log('[Anime-Sama] Domaine via portail: ' + resolved);
+                    _cachedBase = resolved;
+                    return resolved;
                 }
             }
 
-            if (found.length === 0) return ANIMESAMA_FALLBACK;
-
-            // Prendre le dernier (plus récent dans la page)
-            var base = found[found.length - 1];
-            console.log('[Anime-Sama] Domaine résolu: ' + base);
-            return base;
+            // Étape 2 : portail inaccessible → tester les candidats en parallèle
+            console.log('[Anime-Sama] Portail inaccessible, test des candidats...');
+            return Promise.all(ANIMESAMA_CANDIDATES.map(function(candidate) {
+                var testUrl = candidate + '/catalogue/death-note/saison1/vf/episodes.js';
+                return safeFetch(testUrl, { headers: { 'User-Agent': UA, 'Referer': candidate } }, 5000)
+                    .then(function(r) { return r ? candidate : null; })
+                    .catch(function() { return null; });
+            })).then(function(results) {
+                // Prendre le premier candidat qui répond
+                for (var i = 0; i < results.length; i++) {
+                    if (results[i]) {
+                        console.log('[Anime-Sama] Domaine actif: ' + results[i]);
+                        _cachedBase = results[i];
+                        return results[i];
+                    }
+                }
+                // Aucun ne répond → fallback sur le premier candidat
+                console.log('[Anime-Sama] Aucun candidat ne répond, fallback: ' + ANIMESAMA_CANDIDATES[0]);
+                _cachedBase = ANIMESAMA_CANDIDATES[0];
+                return ANIMESAMA_CANDIDATES[0];
+            });
         })
-        .catch(function() { return ANIMESAMA_FALLBACK; })
-        .then(function(base) {
-            _cachedBase = base;
-            return base;
+        .catch(function() {
+            _cachedBase = ANIMESAMA_CANDIDATES[0];
+            return ANIMESAMA_CANDIDATES[0];
         });
 }
 
