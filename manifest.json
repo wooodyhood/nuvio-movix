@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -38,6 +38,27 @@
       "logo": "",
       "contentLanguage": [
         "fr"
+      ],
+      "formats": [
+        "mp4",
+        "m3u8"
+      ]
+    },
+    {
+      "id": "anime-sama-vf",
+      "name": "Anime-Sama",
+      "description": "Anime en VF et VOSTFR depuis anime-sama.to",
+      "version": "2.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": [
+        "tv"
+      ],
+      "filename": "providers/anime-sama.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": [
+        "fr",
+        "ja"
       ],
       "formats": [
         "mp4",
