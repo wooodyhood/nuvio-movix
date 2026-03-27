@@ -1,45 +1,40 @@
 // =============================================================
 // Provider Nuvio : Anime-Sama (anime-sama.fr)
-// Version : 4.0.0 - Simple working provider with Promise chains
+// Version : 5.0.0 - With TMDB to Title conversion
 // =============================================================
 
+var TMDB_API = 'https://api.themoviedb.org/3';
+var TMDB_KEY = '8265bd1679663a7ea12ac168da84d2e8';
 var ANIME_SAMA_BASE = 'https://anime-sama.fr';
-var JIKAN_API = 'https://api.jikan.moe/v4';
 
 var HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
 };
 
-// ============= SEARCH ANIME =============
-
-function searchAnimeOnJikan(query) {
-  console.log('[Anime-Sama] Searching Jikan: ' + query);
+// Récupérer le titre depuis TMDB
+function getTitleFromTMDB(tmdbId) {
+  console.log('[Anime-Sama] Fetching title from TMDB for ID: ' + tmdbId);
   
-  var url = JIKAN_API + '/anime?query=' + encodeURIComponent(query) + '&limit=1';
+  var url = TMDB_API + '/tv/' + tmdbId + '?api_key=' + TMDB_KEY + '&language=en-US';
   
   return fetch(url, { headers: HEADERS })
     .then(function(res) { return res.json(); })
     .then(function(data) {
-      if (!data.data || data.data.length === 0) {
-        console.warn('[Anime-Sama] No anime found for: ' + query);
+      if (!data.name) {
+        console.warn('[Anime-Sama] No title found on TMDB');
         return null;
       }
-      var anime = data.data[0];
-      console.log('[Anime-Sama] Found: ' + anime.title);
-      return {
-        title: anime.title,
-        titleEnglish: anime.title_english || anime.title
-      };
+      console.log('[Anime-Sama] Found title: ' + data.name);
+      return data.name;
     })
     .catch(function(err) {
-      console.error('[Anime-Sama] Jikan error: ' + err.message);
+      console.error('[Anime-Sama] TMDB error: ' + err.message);
       return null;
     });
 }
 
-// ============= NORMALIZE =============
-
-function normalizeTitleForAnimeSama(title) {
+// Normaliser le titre pour anime-sama
+function normalizeTitle(title) {
   if (!title) return '';
   return title
     .toLowerCase()
@@ -49,15 +44,14 @@ function normalizeTitleForAnimeSama(title) {
     .replace(/^-|-$/g, '');
 }
 
-// ============= FETCH EPISODES =============
-
-function fetchEpisodesJs(catalogueName, season, language) {
+// Récupérer les épisodes de anime-sama
+function fetchEpisodes(catalogName, season, language) {
   season = season || 1;
   language = language || 'vf';
   
-  console.log('[Anime-Sama] Fetching episodes: ' + catalogueName + ' S' + season + ' (' + language + ')');
+  console.log('[Anime-Sama] Fetching episodes: ' + catalogName + ' S' + season + ' (' + language + ')');
   
-  var url = ANIME_SAMA_BASE + '/catalogue/' + catalogueName + '/saison' + season + '/' + language + '/episodes.js';
+  var url = ANIME_SAMA_BASE + '/catalogue/' + catalogName + '/saison' + season + '/' + language + '/episodes.js';
   
   return fetch(url, { headers: HEADERS })
     .then(function(res) {
@@ -84,12 +78,11 @@ function fetchEpisodesJs(catalogueName, season, language) {
     });
 }
 
-// ============= RESOLVE STREAM URL =============
-
-function resolveStreamUrl(embedUrl) {
+// Résoudre l'embed vers le lien direct
+function resolveStream(embedUrl) {
   if (!embedUrl || embedUrl.indexOf('http') !== 0) return Promise.resolve(null);
   
-  console.log('[Anime-Sama] Resolving embed: ' + embedUrl);
+  console.log('[Anime-Sama] Resolving: ' + embedUrl);
   
   return fetch(embedUrl, {
     method: 'GET',
@@ -146,36 +139,31 @@ function getPlayerName(url) {
   return 'Direct';
 }
 
-// ============= MAIN FUNCTION =============
-
+// Fonction principale
 function getStreams(tmdbId, mediaType, season, episode) {
   console.log('[Anime-Sama] Request: ' + mediaType + ' ' + tmdbId + ' S' + season + 'E' + episode);
   
-  // Vérifier les paramètres
   if (mediaType !== 'tv' || !season || !episode || !tmdbId) {
     console.warn('[Anime-Sama] Invalid parameters');
     return Promise.resolve([]);
   }
   
-  // Étape 1: Chercher l'anime via Jikan avec l'ID
-  return searchAnimeOnJikan(tmdbId.toString())
-    .then(function(anime) {
-      if (!anime) {
-        console.warn('[Anime-Sama] Anime not found');
-        return [];
-      }
+  // Étape 1: Récupérer le titre depuis TMDB
+  return getTitleFromTMDB(tmdbId)
+    .then(function(title) {
+      if (!title) return [];
       
-      // Étape 2: Normaliser le titre pour anime-sama
-      var catalogueName = normalizeTitleForAnimeSama(anime.titleEnglish || anime.title);
-      console.log('[Anime-Sama] Catalog: ' + catalogueName);
+      // Étape 2: Normaliser pour anime-sama
+      var catalogName = normalizeTitle(title);
+      console.log('[Anime-Sama] Catalog: ' + catalogName);
       
       // Étape 3: Récupérer les épisodes en VF
-      return fetchEpisodesJs(catalogueName, season, 'vf')
+      return fetchEpisodes(catalogName, season, 'vf')
         .then(function(episodeUrls) {
           if (episodeUrls && episodeUrls.length > 0) {
             var episodeUrl = episodeUrls[episode - 1];
             if (episodeUrl) {
-              return resolveStreamUrl(episodeUrl)
+              return resolveStream(episodeUrl)
                 .then(function(streamUrl) {
                   if (streamUrl) {
                     return [{
@@ -196,12 +184,12 @@ function getStreams(tmdbId, mediaType, season, episode) {
           
           // Fallback: Essayer VOSTFR
           console.log('[Anime-Sama] VF not found, trying VOSTFR');
-          return fetchEpisodesJs(catalogueName, season, 'vostfr')
+          return fetchEpisodes(catalogName, season, 'vostfr')
             .then(function(vostfrUrls) {
               if (vostfrUrls && vostfrUrls.length > 0) {
                 var episodeUrl = vostfrUrls[episode - 1];
                 if (episodeUrl) {
-                  return resolveStreamUrl(episodeUrl)
+                  return resolveStream(episodeUrl)
                     .then(function(streamUrl) {
                       if (streamUrl) {
                         return [{
@@ -231,8 +219,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
     });
 }
 
-// ============= EXPORT =============
-
+// Export
 if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 } else {
