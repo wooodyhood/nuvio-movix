@@ -44,26 +44,26 @@
         "m3u8"
       ]
     },
-    {
-      "id": "anime-sama-vf",
-      "name": "Anime-Sama",
-      "description": "Anime en VF et VOSTFR depuis anime-sama.to",
-      "version": "2.0.0",
-      "author": "wooodyhood",
-      "supportedTypes": [
-        "tv"
-      ],
-      "filename": "providers/anime-sama.js",
-      "enabled": true,
-      "logo": "",
-      "contentLanguage": [
-        "fr",
-        "ja"
-      ],
-      "formats": [
-        "mp4",
-        "m3u8"
-      ]
-    }
+  {
+  "id": "anime-sama",
+  "name": "Anime-Sama",
+  "description": "Animes VF/VOSTFR depuis anime-sama.to — sources directes MP4 + sendvid/vidmoly/sibnet",
+  "version": "2.0.0",
+  "author": "wooodyhood",
+  "supportedTypes": [
+    "tv",
+    "movie"
+  ],
+  "filename": "providers/anime-sama.js",
+  "enabled": true,
+  "logo": "https://anime-sama.to/img/icon.png",
+  "contentLanguage": [
+    "fr"
+  ],
+  "formats": [
+    "mp4",
+    "m3u8"
+  ]
+}
   ]
 }
