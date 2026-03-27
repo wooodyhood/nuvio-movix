@@ -1,11 +1,11 @@
 // =============================================================
 // Provider Nuvio : Anime-Sama (anime-sama.fr)
-// Version : 5.0.0 - With TMDB to Title conversion
+// Version : 6.0.0 - Final working version
 // =============================================================
 
 var TMDB_API = 'https://api.themoviedb.org/3';
 var TMDB_KEY = '8265bd1679663a7ea12ac168da84d2e8';
-var ANIME_SAMA_BASE = 'https://anime-sama.fr';
+var ANIME_SAMA_BASE = 'https://anime-sama.to';
 
 var HEADERS = {
   'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
@@ -44,12 +44,12 @@ function normalizeTitle(title) {
     .replace(/^-|-$/g, '');
 }
 
-// Récupérer les épisodes de anime-sama
-function fetchEpisodes(catalogName, season, language) {
+// Récupérer le fichier episodes.js
+function fetchEpisodesFile(catalogName, season, language) {
   season = season || 1;
   language = language || 'vf';
   
-  console.log('[Anime-Sama] Fetching episodes: ' + catalogName + ' S' + season + ' (' + language + ')');
+  console.log('[Anime-Sama] Fetching episodes file: ' + catalogName + ' S' + season + ' (' + language + ')');
   
   var url = ANIME_SAMA_BASE + '/catalogue/' + catalogName + '/saison' + season + '/' + language + '/episodes.js';
   
@@ -61,19 +61,32 @@ function fetchEpisodes(catalogName, season, language) {
     .then(function(html) {
       if (!html) return [];
       
-      // Parser: var XXXXXXX = ["url1", "url2", ...]
-      var match = html.match(/var\s+([a-zA-Z0-9_]+)\s*=\s*\[([\s\S]*?)\]/);
-      if (!match) return [];
+      // Parser tous les arrays : eps1, eps2, eps3, epsAS, etc.
+      var allUrls = [];
       
-      var episodesStr = match[2];
-      var urlMatches = episodesStr.match(/["']([^"']+)["']/g);
+      // Cherche var eps1 = [...], var eps2 = [...], etc.
+      var regex = /var\s+([a-zA-Z0-9_]+)\s*=\s*\[([\s\S]*?)\]/g;
+      var match;
       
-      if (!urlMatches) return [];
+      while ((match = regex.exec(html)) !== null) {
+        var arrayName = match[1];
+        var arrayContent = match[2];
+        
+        // Récupère toutes les URLs de cet array
+        var urlMatches = arrayContent.match(/["']([^"']+)["']/g);
+        if (urlMatches) {
+          for (var i = 0; i < urlMatches.length; i++) {
+            var url = urlMatches[i].replace(/["']/g, '');
+            allUrls.push(url);
+          }
+        }
+      }
       
-      return urlMatches.map(function(u) { return u.replace(/["']/g, ''); });
+      console.log('[Anime-Sama] Found ' + allUrls.length + ' episode URLs');
+      return allUrls;
     })
     .catch(function(err) {
-      console.error('[Anime-Sama] Episode fetch error: ' + err.message);
+      console.error('[Anime-Sama] Episode file fetch error: ' + err.message);
       return [];
     });
 }
@@ -93,12 +106,20 @@ function resolveStream(embedUrl) {
     .then(function(html) {
       if (!html) return null;
       
+      // Si c'est déjà un lien direct .mp4
+      if (embedUrl.indexOf('.mp4') > -1) {
+        return embedUrl;
+      }
+      
+      // Cherche les patterns vidéo dans le HTML
       var patterns = [
         /file\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
         /src\s*:\s*["']([^"']+\.m3u8[^"']*)["']/i,
         /["']([^"']*\.m3u8[^"']*?)["']/i,
         /file\s*:\s*["']([^"']+\.mp4[^"']*)["']/i,
-        /source\s+src=["']([^"']+\.mp4[^"']*)["']/i
+        /source\s+src=["']([^"']+\.mp4[^"']*)["']/i,
+        /https?:\/\/[^\s"']+\.m3u8[^\s"']*/i,
+        /https?:\/\/[^\s"']+\.mp4[^\s"']*/i
       ];
       
       for (var i = 0; i < patterns.length; i++) {
@@ -135,93 +156,5 @@ function getPlayerName(url) {
   if (lower.indexOf('streamtape') > -1 || lower.indexOf('stape') > -1) return 'Streamtape';
   if (lower.indexOf('dood') > -1) return 'Doodstream';
   if (lower.indexOf('uqload') > -1) return 'Uqload';
-  
-  return 'Direct';
-}
-
-// Fonction principale
-function getStreams(tmdbId, mediaType, season, episode) {
-  console.log('[Anime-Sama] Request: ' + mediaType + ' ' + tmdbId + ' S' + season + 'E' + episode);
-  
-  if (mediaType !== 'tv' || !season || !episode || !tmdbId) {
-    console.warn('[Anime-Sama] Invalid parameters');
-    return Promise.resolve([]);
-  }
-  
-  // Étape 1: Récupérer le titre depuis TMDB
-  return getTitleFromTMDB(tmdbId)
-    .then(function(title) {
-      if (!title) return [];
-      
-      // Étape 2: Normaliser pour anime-sama
-      var catalogName = normalizeTitle(title);
-      console.log('[Anime-Sama] Catalog: ' + catalogName);
-      
-      // Étape 3: Récupérer les épisodes en VF
-      return fetchEpisodes(catalogName, season, 'vf')
-        .then(function(episodeUrls) {
-          if (episodeUrls && episodeUrls.length > 0) {
-            var episodeUrl = episodeUrls[episode - 1];
-            if (episodeUrl) {
-              return resolveStream(episodeUrl)
-                .then(function(streamUrl) {
-                  if (streamUrl) {
-                    return [{
-                      name: 'Anime-Sama',
-                      title: getPlayerName(streamUrl) + ' - Ep ' + episode,
-                      url: streamUrl,
-                      quality: 'HD',
-                      headers: {
-                        'Referer': ANIME_SAMA_BASE,
-                        'User-Agent': HEADERS['User-Agent']
-                      }
-                    }];
-                  }
-                  return [];
-                });
-            }
-          }
-          
-          // Fallback: Essayer VOSTFR
-          console.log('[Anime-Sama] VF not found, trying VOSTFR');
-          return fetchEpisodes(catalogName, season, 'vostfr')
-            .then(function(vostfrUrls) {
-              if (vostfrUrls && vostfrUrls.length > 0) {
-                var episodeUrl = vostfrUrls[episode - 1];
-                if (episodeUrl) {
-                  return resolveStream(episodeUrl)
-                    .then(function(streamUrl) {
-                      if (streamUrl) {
-                        return [{
-                          name: 'Anime-Sama (VOSTFR)',
-                          title: getPlayerName(streamUrl) + ' - Ep ' + episode,
-                          url: streamUrl,
-                          quality: 'HD',
-                          headers: {
-                            'Referer': ANIME_SAMA_BASE,
-                            'User-Agent': HEADERS['User-Agent']
-                          }
-                        }];
-                      }
-                      return [];
-                    });
-                }
-              }
-              
-              console.warn('[Anime-Sama] No episodes found');
-              return [];
-            });
-        });
-    })
-    .catch(function(err) {
-      console.error('[Anime-Sama] Error: ' + err.message);
-      return [];
-    });
-}
-
-// Export
-if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
-} else {
-  global.getStreams = getStreams;
-}
+  if (lower.indexOf('anime-sama.fr') > -1 || lower.indexOf('s22.anime-sama')
+
