@@ -44,11 +44,11 @@
         "m3u8"
       ]
     },
-  {
+{
   "id": "anime-sama",
   "name": "Anime-Sama",
-  "description": "Animes VF/VOSTFR depuis anime-sama.to — sources directes MP4 + sendvid/vidmoly/sibnet",
-  "version": "2.0.0",
+  "description": "Animes VF/VOSTFR depuis anime-sama.to — MP4 direct + sendvid/vidmoly/sibnet",
+  "version": "3.0.0",
   "author": "wooodyhood",
   "supportedTypes": [
     "tv",
@@ -59,10 +59,6 @@
   "logo": "https://anime-sama.to/img/icon.png",
   "contentLanguage": [
     "fr"
-  ],
-  "formats": [
-    "mp4",
-    "m3u8"
   ]
 }
   ]
