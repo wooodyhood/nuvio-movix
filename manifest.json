@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -8,20 +8,12 @@
       "description": "Films et séries en VF depuis movix",
       "version": "1.0.0",
       "author": "wooodyhood",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
+      "supportedTypes": ["movie", "tv"],
       "filename": "providers/movix.js",
       "enabled": true,
       "logo": "",
-      "contentLanguage": [
-        "fr"
-      ],
-      "formats": [
-        "mp4",
-        "m3u8"
-      ]
+      "contentLanguage": ["fr"],
+      "formats": ["mp4", "m3u8"]
     },
     {
       "id": "toflix-vf",
@@ -29,37 +21,25 @@
       "description": "Films et séries en VF depuis toflix",
       "version": "1.0.0",
       "author": "wooodyhood",
-      "supportedTypes": [
-        "movie",
-        "tv"
-      ],
+      "supportedTypes": ["movie", "tv"],
       "filename": "providers/toflix.js",
       "enabled": true,
       "logo": "",
-      "contentLanguage": [
-        "fr"
-      ],
-      "formats": [
-        "mp4",
-        "m3u8"
-      ]
+      "contentLanguage": ["fr"],
+      "formats": ["mp4", "m3u8"]
     },
-{
-  "id": "anime-sama",
-  "name": "Anime-Sama",
-  "description": "Animes VF/VOSTFR depuis anime-sama.to — MP4 direct + sendvid/vidmoly/sibnet",
-  "version": "3.0.0",
-  "author": "wooodyhood",
-  "supportedTypes": [
-    "tv",
-    "movie"
-  ],
-  "filename": "providers/anime-sama.js",
-  "enabled": true,
-  "logo": "https://anime-sama.to/img/icon.png",
-  "contentLanguage": [
-    "fr"
-  ]
-}
+    {
+      "id": "anime-sama",
+      "name": "Anime-Sama",
+      "description": "Animes VF/VOSTFR depuis anime-sama.to",
+      "version": "3.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": ["tv", "movie"],
+      "filename": "providers/anime-sama.js",
+      "enabled": true,
+      "logo": "https://anime-sama.to/img/icon.png",
+      "contentLanguage": ["fr"],
+      "formats": ["mp4", "m3u8"]
+    }
   ]
 }
