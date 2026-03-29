@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -45,7 +45,7 @@
       "id": "hds",
       "name": "HDS",
       "description": "Films et séries en streaming depuis hds",
-      "version": "1.0.0",
+      "version": "3.0.0",
       "author": "wooodyhood",
       "supportedTypes": ["movie", "tv"],
       "filename": "providers/hds.js",
