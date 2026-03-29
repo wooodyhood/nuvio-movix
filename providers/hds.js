@@ -1,170 +1,225 @@
 // Provider HDS pour Nuvio TV
 // Site: on2.hds.quest
-// Version: 1.1.0 - Fixed
+// Version: 4.0.0 - Sans clé TMDB
 
-const HDS_DOMAIN = 'https://on2.hds.quest';
-const HDS_API = 'https://on2.hds.quest/wp-admin/admin-ajax.php';
-const TMDB_API = 'https://api.themoviedb.org/3';
-const TMDB_KEY = 'YOUR_TMDB_KEY'; // Remplace par ta clé TMDB si besoin
+var HDS_DOMAIN = 'https://on2.hds.quest';
+var HDS_API = 'https://on2.hds.quest/wp-admin/admin-ajax.php';
+var HDSPLAY = 'https://hdsplay.xyz';
 
-// Récupère le titre depuis TMDB à partir de l'ID
-async function getTitleFromTmdb(tmdbId, mediaType) {
-    const endpoint = mediaType === 'movie'
-        ? `${TMDB_API}/movie/${tmdbId}?api_key=${TMDB_KEY}&language=fr-FR`
-        : `${TMDB_API}/tv/${tmdbId}?api_key=${TMDB_KEY}&language=fr-FR`;
+// Étape 1 : Chercher sur HDS par titre
+function searchOnHDS(title, mediaType) {
+  var query = encodeURIComponent(title);
+  var url = HDS_DOMAIN + '/?s=' + query;
 
-    const response = await fetch(endpoint);
-    const data = await response.json();
+  return fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36',
+      'Referer': HDS_DOMAIN
+    }
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    var links = [];
+    var pattern = /href=["'](https:\/\/on2\.hds\.quest\/(films|series|episodes)\/[^"'?#]+)["']/gi;
+    var match;
+    while ((match = pattern.exec(html)) !== null) {
+      if (links.indexOf(match[1]) === -1) links.push(match[1]);
+    }
 
-    const title = data.title || data.name || data.original_title || data.original_name;
-    const year = (data.release_date || data.first_air_date || '').slice(0, 4);
-    return { title, year };
-}
-
-// Recherche le film/série sur HDS par titre
-async function searchOnHDS(title) {
-    const query = encodeURIComponent(title);
-    const searchUrl = `${HDS_DOMAIN}/?s=${query}`;
-
-    const response = await fetch(searchUrl, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }
+    // Filtrer selon le type
+    var filtered = links.filter(function(l) {
+      if (mediaType === 'movie') return l.indexOf('/films/') !== -1;
+      return l.indexOf('/series/') !== -1;
     });
-    const html = await response.text();
 
-    // Extraire les liens de résultats
-    const linkPattern = /href=["'](https:\/\/on2\.hds\.quest\/(?:films|series)\/[^"']+)["']/gi;
-    const links = [];
-    let match;
-    while ((match = linkPattern.exec(html)) !== null) {
-        if (!links.includes(match[1])) links.push(match[1]);
-    }
+    if (filtered.length === 0 && links.length > 0) filtered = links;
+    if (filtered.length === 0) throw new Error('[HDS] Aucun résultat pour: ' + title);
 
-    return links;
+    console.log('[HDS] Lien trouvé:', filtered[0]);
+    return filtered[0];
+  });
 }
 
-// Extrait l'ID du post depuis la page
-async function extractPostId(url) {
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Referer': HDS_DOMAIN
-        }
+// Étape 2 : Construire l'URL de l'épisode pour les séries
+function buildEpisodeUrl(seriesUrl, season, episode) {
+  var slugMatch = seriesUrl.match(/\/series\/([^\/]+)\/?$/);
+  if (!slugMatch) throw new Error('[HDS] Impossible d\'extraire le slug série');
+  var slug = slugMatch[1];
+  return HDS_DOMAIN + '/episodes/' + slug + '-saison-' + season + '-episode-' + episode + '/';
+}
+
+// Étape 3 : Extraire le postId depuis une page
+function extractPostId(url) {
+  return fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36',
+      'Referer': HDS_DOMAIN
+    }
+  })
+  .then(function(r) {
+    if (!r.ok) throw new Error('[HDS] Page introuvable: ' + url);
+    return r.text();
+  })
+  .then(function(html) {
+    var m = html.match(/data-post=["']?(\d+)/i) || html.match(/data-id=["']?(\d+)/i);
+    if (!m) throw new Error('[HDS] PostId non trouvé sur: ' + url);
+    console.log('[HDS] PostId:', m[1]);
+    return m[1];
+  });
+}
+
+// Étape 4 : Appel admin-ajax pour obtenir l'embed URL
+function getEmbedUrl(postId, type, referer) {
+  var tryPlayer = function(nume) {
+    var formData = new URLSearchParams();
+    formData.append('action', 'doo_player_ajax');
+    formData.append('post', postId);
+    formData.append('nume', String(nume));
+    formData.append('type', type);
+
+    return fetch(HDS_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/x-www-form-urlencoded',
+        'X-Requested-With': 'XMLHttpRequest',
+        'Referer': referer,
+        'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36'
+      },
+      body: formData
+    })
+    .then(function(r) { return r.json(); })
+    .then(function(data) {
+      return (data.embed_url && data.embed_url !== '') ? data.embed_url : null;
     });
-    const html = await response.text();
+  };
 
-    const patterns = [
-        /data-post=["']?(\d+)/i,
-        /postid["']?\s*:\s*["']?(\d+)/i,
-        /post=(\d+)/i,
-        /"post":(\d+)/i,
-        /id="post-(\d+)"/i
-    ];
-
-    for (const pattern of patterns) {
-        const match = html.match(pattern);
-        if (match && match[1]) return match[1];
-    }
-
-    throw new Error("ID non trouvé sur la page: " + url);
+  return tryPlayer(1).then(function(url) {
+    if (url) return url;
+    return tryPlayer(2);
+  }).then(function(url) {
+    if (url) return url;
+    return tryPlayer(3);
+  }).then(function(url) {
+    if (!url) throw new Error('[HDS] Aucune embed_url pour postId=' + postId);
+    console.log('[HDS] embed_url:', url);
+    return url;
+  });
 }
 
-// Récupère l'URL embed via admin-ajax
-async function getEmbedUrl(postId, type, season, episode) {
-    const tryPlayer = async (nume) => {
-        const formData = new URLSearchParams();
-        formData.append('action', 'doo_player_ajax');
-        formData.append('post', postId);
-        formData.append('nume', String(nume));
-        formData.append('type', type);
+// Étape 5 : Suivre la redirection vers hdsplay.xyz
+function resolveHdsplayUrl(embedUrl) {
+  return fetch(embedUrl, {
+    method: 'GET',
+    redirect: 'follow',
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36',
+      'Referer': HDS_DOMAIN
+    }
+  })
+  .then(function(r) {
+    var finalUrl = r.url;
+    console.log('[HDS] URL après redirection:', finalUrl);
+    if (finalUrl.indexOf('hdsplay.xyz') === -1) {
+      throw new Error('[HDS] Redirection inattendue: ' + finalUrl);
+    }
+    return finalUrl;
+  });
+}
 
-        // Pour les séries, ajouter saison et épisode
-        if (type === 'tv' && season && episode) {
-            formData.append('season', String(season));
-            formData.append('episode', String(episode));
-        }
+// Étape 6 : Extraire le m3u8 depuis la page hdsplay
+function extractM3u8(hdsplayUrl) {
+  return fetch(hdsplayUrl, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36',
+      'Referer': HDS_DOMAIN
+    }
+  })
+  .then(function(r) { return r.text(); })
+  .then(function(html) {
+    var start = html.indexOf("eval(function(p,a,c,k,e,d)");
+    if (start === -1) throw new Error('[HDS] eval non trouvé dans la page hdsplay');
 
-        const response = await fetch(HDS_API, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'X-Requested-With': 'XMLHttpRequest',
-                'Referer': HDS_DOMAIN,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            },
-            body: formData
-        });
+    var evalStr = html.substring(start);
+    var end = evalStr.indexOf("split('|')))") + "split('|')))".length;
+    evalStr = evalStr.substring(0, end);
 
-        const data = await response.json();
-        return (data.embed_url && data.embed_url !== '') ? data.embed_url : null;
-    };
-
-    // Essayer player 1, puis 2, puis 3
-    for (let i = 1; i <= 3; i++) {
-        const url = await tryPlayer(i);
-        if (url) return url;
+    var decoded;
+    try {
+      decoded = (new Function('return ' + evalStr.replace(/^eval/, '')))();
+    } catch(e) {
+      throw new Error('[HDS] Erreur décodage eval: ' + e.message);
     }
 
-    throw new Error("Aucune source vidéo trouvée pour postId=" + postId);
+    // hls4 en priorité (stream direct), puis hls2, puis hls3
+    var hls4 = decoded.match(/"hls4"\s*:\s*"([^"]+)"/);
+    var hls2 = decoded.match(/"hls2"\s*:\s*"([^"]+)"/);
+    var hls3 = decoded.match(/"hls3"\s*:\s*"([^"]+)"/);
+
+    var url = null;
+    if (hls4 && hls4[1]) url = hls4[1];
+    else if (hls2 && hls2[1]) url = hls2[1];
+    else if (hls3 && hls3[1]) url = hls3[1];
+
+    if (!url) throw new Error('[HDS] Aucune source m3u8 trouvée');
+    if (url.charAt(0) === '/') url = HDSPLAY + url;
+
+    console.log('[HDS] m3u8:', url);
+    return url;
+  });
 }
 
 // Fonction principale appelée par Nuvio TV
-async function getStreams(tmdbId, mediaType, season, episode) {
-    console.log('[HDS] Recherche pour tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode);
+function getStreams(tmdbId, mediaType, season, episode, title) {
+  console.log('[HDS] Début recherche tmdbId=' + tmdbId + ' type=' + mediaType + ' S' + season + 'E' + episode + ' title=' + title);
 
-    try {
-        // 1. Récupérer le titre via TMDB
-        let title, year;
-        try {
-            ({ title, year } = await getTitleFromTmdb(tmdbId, mediaType));
-            console.log('[HDS] Titre TMDB:', title, year);
-        } catch (e) {
-            console.warn('[HDS] TMDB échoué, tmdbId utilisé directement');
-            title = String(tmdbId);
-            year = '';
+  if (!title) {
+    console.error('[HDS] Titre manquant');
+    return Promise.resolve([]);
+  }
+
+  var contentUrl = null;
+
+  return searchOnHDS(title, mediaType)
+    .then(function(url) {
+      if (mediaType === 'tv' && season && episode) {
+        contentUrl = buildEpisodeUrl(url, season, episode);
+        console.log('[HDS] URL épisode:', contentUrl);
+      } else {
+        contentUrl = url;
+      }
+      return extractPostId(contentUrl);
+    })
+    .then(function(postId) {
+      var type = mediaType === 'movie' ? 'movie' : 'tv';
+      return getEmbedUrl(postId, type, contentUrl);
+    })
+    .then(function(embedUrl) {
+      return resolveHdsplayUrl(embedUrl);
+    })
+    .then(function(hdsplayUrl) {
+      return extractM3u8(hdsplayUrl);
+    })
+    .then(function(m3u8Url) {
+      return [{
+        name: 'HDS',
+        title: 'HDS Streaming',
+        url: m3u8Url,
+        quality: 'HD',
+        type: 'hls',
+        headers: {
+          'Referer': HDSPLAY + '/',
+          'User-Agent': 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36'
         }
-
-        // 2. Chercher sur HDS
-        const links = await searchOnHDS(title);
-        if (links.length === 0) {
-            console.warn('[HDS] Aucun résultat pour:', title);
-            return [];
-        }
-
-        console.log('[HDS] Liens trouvés:', links.length);
-
-        // 3. Prendre le premier résultat pertinent
-        const contentUrl = links[0];
-        const postId = await extractPostId(contentUrl);
-        console.log('[HDS] Post ID:', postId);
-
-        // 4. Récupérer l'embed
-        const type = mediaType === 'movie' ? 'movie' : 'tv';
-        const embedUrl = await getEmbedUrl(postId, type, season, episode);
-        console.log('[HDS] Embed URL:', embedUrl);
-
-        return [{
-            name: 'HDS',
-            title: 'Streaming HDS',
-            url: embedUrl,
-            quality: 'HD',
-            format: 'm3u8',
-            headers: {
-                'Referer': HDS_DOMAIN,
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-            }
-        }];
-
-    } catch (error) {
-        console.error('[HDS] Erreur:', error.message);
-        return [];
-    }
+      }];
+    })
+    .catch(function(error) {
+      console.error('[HDS] Erreur:', error.message);
+      return [];
+    });
 }
 
-// Export pour Nuvio TV
 if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { getStreams };
+  module.exports = { getStreams };
 } else {
-    global.getStreams = getStreams;
+  global.getStreams = getStreams;
 }
