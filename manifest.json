@@ -42,13 +42,13 @@
       "formats": ["mp4", "m3u8"]
     },
     {
-      "id": "hds-quest",
-      "name": "HDS Quest",
-      "description": "Films et séries en streaming depuis hds.quest",
+      "id": "hds",
+      "name": "HDS",
+      "description": "Films et séries en streaming depuis hds",
       "version": "1.0.0",
       "author": "wooodyhood",
       "supportedTypes": ["movie", "tv"],
-      "filename": "providers/hdsquest.js",
+      "filename": "providers/hds.js",
       "enabled": true,
       "logo": "https://on2.hds.quest/wp-content/uploads/2025/05/hdslogofinal.png",
       "contentLanguage": ["fr"],
