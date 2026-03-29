@@ -1,11 +1,13 @@
 // Provider HDS Quest pour Nuvio TV
 // Supporte les films et séries sur on2.hds.quest
 
-const HDSQuestProvider = {
-    name: "HDS Quest",
+const hds = {
+    id: "hds",
+    name: "HDS",
     domain: "https://on2.hds.quest",
     apiUrl: "https://on2.hds.quest/wp-admin/admin-ajax.php",
 
+    // Détecte le type de contenu
     getContentType(url) {
         if (url.includes('/films/')) return { paramType: 'movie', category: 'film' };
         if (url.includes('/episodes/')) return { paramType: 'tv', category: 'episode' };
@@ -13,6 +15,7 @@ const HDSQuestProvider = {
         return null;
     },
 
+    // Extrait l'ID du post depuis la page
     async extractPostId(url) {
         const response = await fetch(url);
         const html = await response.text();
@@ -41,6 +44,7 @@ const HDSQuestProvider = {
         throw new Error("ID non trouvé");
     },
 
+    // Récupère l'URL embed via admin-ajax
     async getEmbedUrl(postId, contentType) {
         const formData = new URLSearchParams();
         formData.append('action', 'doo_player_ajax');
@@ -82,6 +86,7 @@ const HDSQuestProvider = {
         throw new Error("Aucune source vidéo");
     },
 
+    // Méthode principale appelée par Nuvio TV
     async getStreamUrl(videoUrl) {
         const contentType = this.getContentType(videoUrl);
         if (!contentType) throw new Error("URL non supportée");
@@ -93,6 +98,5 @@ const HDSQuestProvider = {
     }
 };
 
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = HDSQuestProvider;
-}
+// Export pour Nuvio TV (format standard)
+module.exports = hds;
