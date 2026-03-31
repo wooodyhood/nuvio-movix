@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -53,6 +53,19 @@
       "logo": "https://on2.hds.quest/wp-content/uploads/2025/05/hdslogofinal.png",
       "contentLanguage": ["fr"],
       "formats": ["m3u8"]
+    },
+    {
+      "id": "xamoz",
+      "name": "Xamoz",
+      "description": "Films en streaming depuis xamoz.com (iframe)",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": ["movie"],
+      "filename": "providers/xamoz.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": ["fr"],
+      "formats": ["embed"]
     }
   ]
 }
