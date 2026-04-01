@@ -1,57 +1,21 @@
 // =============================================================
 // Provider Nuvio : xamoz.com
-// Version : 2.0.0
+// Version : 3.0.0
 // Films uniquement
 // =============================================================
 
 var XAMOZ_BASE = 'https://xamoz.com';
-var XAMOZ_HOME = XAMOZ_BASE + '/cq4ug1qhqr/home/xamoz';
 var XAMOZ_SEARCH = XAMOZ_BASE + '/cq4ug1qhqr/home/xamoz';
-
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
-// -------------------------------------------------------------
-// Étape 0 : Récupérer les cookies de session en visitant le site
-// Le site pose g=true via JS quand on clique sur "entrez sur xamoz".
-// On simule cette visite avec deux requêtes GET successives.
-// -------------------------------------------------------------
-function getSessionCookies() {
-    // Visite 1 : page d'entrée (https://xamoz.com)
-    return fetch(XAMOZ_BASE + '/', {
-        method: 'GET',
-        headers: {
-            'User-Agent': UA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-            'Upgrade-Insecure-Requests': '1'
-        },
-        redirect: 'follow'
-    })
-    .then(function(res) {
-        // Visite 2 : page principale — simule le clic "entrez sur xamoz"
-        return fetch(XAMOZ_HOME, {
-            method: 'GET',
-            headers: {
-                'User-Agent': UA,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                'Accept-Language': 'fr-FR,fr;q=0.9',
-                'Referer': XAMOZ_BASE + '/',
-                'Upgrade-Insecure-Requests': '1'
-            },
-            redirect: 'follow'
-        });
-    })
-    .then(function() {
-        // g=true est posé par JS côté client — on le fournit directement
-        // C'est un cookie de consentement simple, pas un token cryptographique
-        return 'g=true';
-    });
-}
+// Le cookie g=true est un cookie de consentement posé par JS côté client.
+// Il est obligatoire : sans lui le serveur retourne la homepage au lieu des résultats.
+var SESSION_COOKIE = 'g=true';
 
 // -------------------------------------------------------------
-// Étape 1 : Rechercher le film par titre
+// 1. Rechercher le film par titre
 // -------------------------------------------------------------
-function searchMovie(title, cookie) {
+function searchMovie(title) {
     var cleanTitle = title
         .normalize('NFD')
         .replace(/[\u0300-\u036f]/g, '')
@@ -67,16 +31,12 @@ function searchMovie(title, cookie) {
         method: 'POST',
         headers: {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Referer': XAMOZ_HOME,
+            'Cookie': SESSION_COOKIE,
+            'Referer': XAMOZ_SEARCH,
             'Origin': XAMOZ_BASE,
-            'Cookie': cookie,
             'User-Agent': UA,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-            'sec-fetch-dest': 'document',
-            'sec-fetch-mode': 'navigate',
-            'sec-fetch-site': 'same-origin',
-            'upgrade-insecure-requests': '1'
+            'Accept-Language': 'fr-FR,fr;q=0.9'
         },
         body: formData.toString()
     })
@@ -86,7 +46,12 @@ function searchMovie(title, cookie) {
     })
     .then(function(html) {
         if (!html || html.trim().length === 0) {
-            throw new Error('Réponse vide — cookie g=true non accepté ou site inaccessible');
+            throw new Error('Réponse vide du serveur');
+        }
+
+        // Vérifier qu'on a bien une page de résultats et pas la homepage
+        if (html.indexOf('Recherche :') === -1 && html.length > 200000) {
+            throw new Error('Le serveur a retourné la homepage — cookie g=true non pris en compte');
         }
 
         var ids = [];
@@ -97,26 +62,25 @@ function searchMovie(title, cookie) {
         }
 
         if (ids.length === 0) throw new Error('Aucun film trouvé pour : ' + title);
-        console.log('[Xamoz] Film trouvé, ID :', ids[0], '(' + ids.length + ' résultats)');
+        console.log('[Xamoz] Film trouvé, ID :', ids[0], '(' + ids.length + ' résultat(s))');
         return ids[0];
     });
 }
 
 // -------------------------------------------------------------
-// Étape 2 : Récupérer la page du film et extraire l'iframe
+// 2. Récupérer la page du film et extraire l'URL du lecteur
 // -------------------------------------------------------------
-function getEmbedUrl(internalId, cookie) {
+function getEmbedUrl(internalId) {
     var filmUrl = XAMOZ_BASE + '/cq4ug1qhqr/b/xamoz/' + internalId;
 
     return fetch(filmUrl, {
         method: 'GET',
         headers: {
-            'Referer': XAMOZ_HOME,
-            'Cookie': cookie,
+            'Cookie': SESSION_COOKIE,
+            'Referer': XAMOZ_SEARCH,
             'User-Agent': UA,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'fr-FR,fr;q=0.9',
-            'upgrade-insecure-requests': '1'
+            'Accept-Language': 'fr-FR,fr;q=0.9'
         }
     })
     .then(function(res) {
@@ -128,7 +92,6 @@ function getEmbedUrl(internalId, cookie) {
             throw new Error('Page film vide');
         }
 
-        // Patterns par ordre de priorité
         var patterns = [
             /<iframe[^>]+src="(https?:\/\/[^"]*sharecloudy\.com\/iframe\/[^"]+)"/i,
             /<iframe[^>]+src="(https?:\/\/[^"]*(?:embed|player|iframe)[^"]+)"/i,
@@ -150,7 +113,7 @@ function getEmbedUrl(internalId, cookie) {
 }
 
 // -------------------------------------------------------------
-// Fonction principale
+// 3. Fonction principale
 // -------------------------------------------------------------
 function getStreams(tmdbId, mediaType, season, episode, title) {
     console.log('[Xamoz] Démarrage — tmdbId=' + tmdbId + ' type=' + mediaType + ' title=' + title);
@@ -165,13 +128,9 @@ function getStreams(tmdbId, mediaType, season, episode, title) {
         return Promise.resolve([]);
     }
 
-    return getSessionCookies()
-        .then(function(cookie) {
-            console.log('[Xamoz] Cookie session obtenu :', cookie);
-            return searchMovie(title, cookie)
-                .then(function(internalId) {
-                    return getEmbedUrl(internalId, cookie);
-                });
+    return searchMovie(title)
+        .then(function(internalId) {
+            return getEmbedUrl(internalId);
         })
         .then(function(embedUrl) {
             return [{
