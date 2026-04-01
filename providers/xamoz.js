@@ -1,19 +1,52 @@
 // =============================================================
 // Provider Nuvio : xamoz.com
-// Version : 3.0.0
+// Version : 4.0.0
 // Films uniquement
+// Utilise XMLHttpRequest — fetch ignore les cookies sur Android
 // =============================================================
 
 var XAMOZ_BASE = 'https://xamoz.com';
 var XAMOZ_SEARCH = XAMOZ_BASE + '/cq4ug1qhqr/home/xamoz';
 var UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36';
 
-// Le cookie g=true est un cookie de consentement posé par JS côté client.
-// Il est obligatoire : sans lui le serveur retourne la homepage au lieu des résultats.
-var SESSION_COOKIE = 'g=true';
+// -------------------------------------------------------------
+// Utilitaire : XMLHttpRequest encapsulé en Promise
+// -------------------------------------------------------------
+function xhrRequest(method, url, headers, body) {
+    return new Promise(function(resolve, reject) {
+        var xhr = new XMLHttpRequest();
+        xhr.open(method, url, true);
+        xhr.withCredentials = false;
+
+        if (headers) {
+            Object.keys(headers).forEach(function(key) {
+                try { xhr.setRequestHeader(key, headers[key]); } catch(e) {}
+            });
+        }
+
+        xhr.onload = function() {
+            if (xhr.status >= 200 && xhr.status < 300) {
+                resolve(xhr.responseText);
+            } else {
+                reject(new Error('Erreur HTTP ' + xhr.status + ' sur ' + url));
+            }
+        };
+
+        xhr.onerror = function() {
+            reject(new Error('Erreur réseau sur ' + url));
+        };
+
+        xhr.ontimeout = function() {
+            reject(new Error('Timeout sur ' + url));
+        };
+
+        xhr.timeout = 15000;
+        xhr.send(body || null);
+    });
+}
 
 // -------------------------------------------------------------
-// 1. Rechercher le film par titre
+// 1. Rechercher le film par titre via POST
 // -------------------------------------------------------------
 function searchMovie(title) {
     var cleanTitle = title
@@ -24,34 +57,27 @@ function searchMovie(title) {
         .trim()
         .replace(/\s+/g, ' ');
 
-    var formData = new URLSearchParams();
-    formData.append('searchword', cleanTitle);
+    console.log('[Xamoz] Recherche :', cleanTitle);
 
-    return fetch(XAMOZ_SEARCH, {
-        method: 'POST',
-        headers: {
+    return xhrRequest(
+        'POST',
+        XAMOZ_SEARCH,
+        {
             'Content-Type': 'application/x-www-form-urlencoded',
-            'Cookie': SESSION_COOKIE,
             'Referer': XAMOZ_SEARCH,
             'Origin': XAMOZ_BASE,
-            'User-Agent': UA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'fr-FR,fr;q=0.9'
+            'User-Agent': UA
         },
-        body: formData.toString()
-    })
-    .then(function(res) {
-        if (!res.ok) throw new Error('Erreur HTTP recherche : ' + res.status);
-        return res.text();
-    })
+        'searchword=' + encodeURIComponent(cleanTitle)
+    )
     .then(function(html) {
         if (!html || html.trim().length === 0) {
             throw new Error('Réponse vide du serveur');
         }
 
         // Vérifier qu'on a bien une page de résultats et pas la homepage
-        if (html.indexOf('Recherche :') === -1 && html.length > 200000) {
-            throw new Error('Le serveur a retourné la homepage — cookie g=true non pris en compte');
+        if (html.indexOf('Recherche :') === -1) {
+            throw new Error('Page de résultats non obtenue (longueur: ' + html.length + ')');
         }
 
         var ids = [];
@@ -73,20 +99,14 @@ function searchMovie(title) {
 function getEmbedUrl(internalId) {
     var filmUrl = XAMOZ_BASE + '/cq4ug1qhqr/b/xamoz/' + internalId;
 
-    return fetch(filmUrl, {
-        method: 'GET',
-        headers: {
-            'Cookie': SESSION_COOKIE,
+    return xhrRequest(
+        'GET',
+        filmUrl,
+        {
             'Referer': XAMOZ_SEARCH,
-            'User-Agent': UA,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'fr-FR,fr;q=0.9'
+            'User-Agent': UA
         }
-    })
-    .then(function(res) {
-        if (!res.ok) throw new Error('Erreur HTTP page film : ' + res.status);
-        return res.text();
-    })
+    )
     .then(function(html) {
         if (!html || html.trim().length === 0) {
             throw new Error('Page film vide');
