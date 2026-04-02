@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.4",
+  "version": "1.0.5",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -25,6 +25,19 @@
       "filename": "providers/toflix.js",
       "enabled": true,
       "logo": "",
+      "contentLanguage": ["fr"],
+      "formats": ["mp4", "m3u8"]
+    },
+    {
+      "id": "purstream",
+      "name": "Purstream",
+      "description": "Films et séries en VF/VOSTFR/MULTI depuis purstream.art",
+      "version": "3.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/purstream.js",
+      "enabled": true,
+      "logo": "https://purstream.art/assets/favicon.BYaz4d7M.ico",
       "contentLanguage": ["fr"],
       "formats": ["mp4", "m3u8"]
     },
