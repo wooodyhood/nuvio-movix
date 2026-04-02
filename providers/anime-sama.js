@@ -1,6 +1,6 @@
 // ============================================================
 // Provider Nuvio : Anime-Sama (anime-sama.to)
-// Version      : 5.0.0
+// Version      : 6.0.0
 // Moteur       : Promise chains UNIQUEMENT (Hermes / React Native)
 // Langues      : VF priorité, fallback VOSTFR
 // Sources      : epsAS (MP4 direct) > sendvid > vidmoly > sibnet
@@ -8,8 +8,8 @@
 
 var AS_BASE  = 'https://anime-sama.to';
 var AS_REF   = 'https://anime-sama.to/';
-var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
-var TMDB_KEY = '2696829a81b1b5827d515ff121700838';
+var UA       = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
+var TMDB_KEY = '2dca580c2a14b55200e784d157207b4d';
 
 // Cache mémoire tmdbId → slug anime-sama
 var _cache = {};
@@ -48,6 +48,8 @@ function getTitlesFromTmdb(tmdbId, mediaType) {
   var url  = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId
     + '?api_key=' + TMDB_KEY + '&language=fr-FR&append_to_response=alternative_titles';
 
+  console.log('[AnimeSama] TMDB:', url);
+
   return getJson(url).then(function(d) {
     var seen = {}, titles = [];
     function add(t) {
@@ -58,7 +60,7 @@ function getTitlesFromTmdb(tmdbId, mediaType) {
     add(d.original_name || d.original_title);
     var arr = ((d.alternative_titles || {}).results || (d.alternative_titles || {}).titles || []);
     arr.forEach(function(a) { add(a.title || a.name); });
-    console.log('[AnimeSama] Titres TMDB:', titles.slice(0, 4));
+    console.log('[AnimeSama] Titres:', titles.slice(0, 4));
     return titles;
   }).catch(function(e) {
     console.warn('[AnimeSama] TMDB fail:', e.message);
@@ -67,6 +69,8 @@ function getTitlesFromTmdb(tmdbId, mediaType) {
 }
 
 // ─── Étape 2 : Recherche slug sur anime-sama ─────────────────
+// POST /template-php/defaut/fetch.php  body: query=xxx
+// Réponse : href="https://anime-sama.to/catalogue/SLUG/"
 
 function searchAnimeSama(query) {
   return fetch(AS_BASE + '/template-php/defaut/fetch.php', {
@@ -96,7 +100,7 @@ function searchAnimeSama(query) {
   });
 }
 
-// ─── Étape 2b : Score similarité ─────────────────────────────
+// ─── Étape 2b : Score similarité titre ↔ slug ────────────────
 
 function norm(s) {
   return (s || '').toLowerCase()
@@ -135,7 +139,7 @@ function resolveSlug(tmdbId, titles) {
       });
     });
   }, Promise.resolve()).then(function() {
-    // Retry avec titre court si score faible
+    // Retry avec titre tronqué si score faible
     if ((!best || bestScore < 0.35) && titles[0]) {
       var short = titles[0].split(/[:\-|]/)[0].trim();
       if (short && short !== titles[0] && short.length > 2) {
@@ -156,6 +160,11 @@ function resolveSlug(tmdbId, titles) {
 }
 
 // ─── Étape 3 : Parse episodes.js ─────────────────────────────
+// /catalogue/slug/saison{N}/{lang}/episodes.js
+// var epsAS = [...mp4...];  ← priorité max, MP4 direct
+// var eps1  = [...sibnet...];
+// var eps2  = [...vidmoly...];
+// var eps3  = [...sendvid...];
 
 function parseEpisodesJs(js) {
   var result = {};
@@ -179,6 +188,7 @@ function fetchEpisodesJs(slug, season, lang) {
     .catch(function() { return null; });
 }
 
+// Essaye VF puis VOSTFR
 function fetchEpisodes(slug, season) {
   return LANGS.reduce(function(chain, lang) {
     return chain.then(function(found) {
@@ -192,6 +202,7 @@ function fetchEpisodes(slug, season) {
 
 // ─── Étape 4 : Extracteurs embed ─────────────────────────────
 
+// sendvid : src="https://videos2.sendvid.com/...mp4?validfrom=..."
 function extractSendvid(embedUrl) {
   return getText(embedUrl, 'https://sendvid.com/').then(function(html) {
     var patterns = [
@@ -206,15 +217,12 @@ function extractSendvid(embedUrl) {
   }).catch(function() { return null; });
 }
 
+// sibnet : redirect 302 → mp4
 function extractSibnet(shellUrl) {
   return fetch(shellUrl, {
-    redirect: 'manual',
     headers: { 'User-Agent': UA, 'Referer': 'https://video.sibnet.ru/' }
   }).then(function(r) {
-    if (r.status === 301 || r.status === 302) {
-      var loc = r.headers.get('location') || '';
-      if (loc.indexOf('.mp4') !== -1) return loc;
-    }
+    // Cherche dans le HTML final après redirect
     return r.text().then(function(html) {
       var m = /["'](https?:\/\/[^"']+\.mp4[^"']*)["']/i.exec(html);
       return m ? m[1] : null;
@@ -222,6 +230,7 @@ function extractSibnet(shellUrl) {
   }).catch(function() { return null; });
 }
 
+// vidmoly : JW Player → .m3u8 ou .mp4
 function extractVidmoly(embedUrl) {
   return getText(embedUrl, 'https://vidmoly.to/').then(function(html) {
     var m3 = /["'](https?:\/\/[^"']+\.m3u8[^"']*)["']/i.exec(html);
@@ -232,7 +241,9 @@ function extractVidmoly(embedUrl) {
   }).catch(function() { return null; });
 }
 
+// Dispatch → { url, fmt } | null
 function extractUrl(embedUrl) {
+  // epsAS : URL directe mp4/m3u8
   if (/\.(mp4|m3u8)(\?|$)/i.test(embedUrl)) {
     return Promise.resolve({
       url: embedUrl,
