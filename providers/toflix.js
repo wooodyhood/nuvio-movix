@@ -8,10 +8,6 @@ var TOFLIX_TOKEN = 'TobiCocoToflix2025TokenDeLaV2MeilleurSiteDeStreaminAuMondeEn
 var TELEGRAM_CHANNEL = 'https://t.me/s/toflixofficiel';
 var TOFLIX_MOM = 'https://toflix.mom/';
 
-function log(msg, data) {
-    console.log('[ToFlix] ' + msg + (data ? ': ' + JSON.stringify(data) : ''));
-}
-
 function detectFromTelegram() {
   return fetch(TELEGRAM_CHANNEL, {
     method: 'GET',
@@ -103,11 +99,9 @@ function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
   var seasonNum = season || 1;
   var episodeNum = episode || 1;
   
-  log('Fetch série', { tmdbId, season: seasonNum, episode: episodeNum });
-  
   return callApi(apiUrl, referer, { 
     api: 'fastflux', 
-    endpoint: 'series', 
+    endpoint: 'serie/fastflux_episodes', 
     tmdb_id: String(tmdbId) 
   })
     .then(function(data) {
@@ -115,7 +109,6 @@ function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
         throw new Error('Réponse API invalide');
       }
       
-      // Structure JSON : { success: true, seasons: { "1": [...], "2": [...] } }
       if (!data.seasons) {
         throw new Error('Pas de saisons disponibles');
       }
@@ -127,7 +120,6 @@ function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
       
       var episodes = data.seasons[seasonKey];
       
-      // Chercher l'épisode
       for (var i = 0; i < episodes.length; i++) {
         var ep = episodes[i];
         if (ep.episode_number === episodeNum) {
@@ -136,8 +128,6 @@ function fetchSeries(apiUrl, referer, tmdbId, season, episode) {
           if (!url) {
             throw new Error('URL non trouvée pour S' + seasonNum + 'E' + episodeNum);
           }
-          
-          log('Stream trouvé', { url: url, title: ep.title });
           
           return [{
             name: 'ToFlix',
@@ -169,11 +159,8 @@ function getStreamsWithApi(apiUrl, referer, tmdbId, mediaType, season, episode) 
 }
 
 function getStreams(tmdbId, mediaType, season, episode, title) {
-  log('getStreams', { tmdbId, mediaType, season, episode, title });
-  
   return getStreamsWithApi(TOFLIX_API, TOFLIX_REFERER, tmdbId, mediaType, season, episode)
     .catch(function(err) {
-      log('Fallback Telegram', err.message);
       return detectFromTelegram().then(function(detected) {
         if (detected) {
           return getStreamsWithApi(detected.api, detected.referer, tmdbId, mediaType, season, episode);
@@ -185,13 +172,13 @@ function getStreams(tmdbId, mediaType, season, episode, title) {
       });
     })
     .catch(function(err) {
-      console.error('[ToFlix] Erreur globale:', err.message || err);
+      console.error('[ToFlix] Erreur:', err.message || err);
       return [];
     });
 }
 
 if (typeof module !== 'undefined' && module.exports) {
-  module.exports = { getStreams };
+  module.exports = { getStreams: getStreams };
 } else {
   global.getStreams = getStreams;
 }
