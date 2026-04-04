@@ -1,12 +1,20 @@
 // Provider HDS pour Nuvio TV
 // Site: on2.hds.quest
-// Version: 5.0.0 - Avec TMDB comme Purstream
+// Version: 6.0.0
 
 var HDS_DOMAIN = 'https://on2.hds.quest';
 var HDS_API = 'https://on2.hds.quest/wp-admin/admin-ajax.php';
 var HDSPLAY = 'https://hdsplay.xyz';
 var TMDB_KEY = '2dca580c2a14b55200e784d157207b4d';
 var HDS_UA = 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36';
+
+// Domaines inutilisables (parkes, JS requis)
+var BLOCKED_DOMAINS = ['down-paradise.com', 'ocine.co', 'parklogic.com'];
+
+function isBlockedUrl(url) {
+  if (!url) return true;
+  return BLOCKED_DOMAINS.some(function(d) { return url.indexOf(d) !== -1; });
+}
 
 // Etape 1 : tmdbId -> titre via TMDB
 function getTitleFromTmdb(tmdbId, mediaType) {
@@ -90,7 +98,6 @@ function extractPostId(url) {
     }
   })
   .then(function(r) {
-    console.log('[HDS] Status page:', r.status);
     if (!r.ok) throw new Error('[HDS] Page introuvable: ' + url);
     return r.text();
   })
@@ -102,7 +109,7 @@ function extractPostId(url) {
   });
 }
 
-// Etape 5 : Appel admin-ajax pour obtenir l'embed URL
+// Etape 5 : Appel admin-ajax - ignore les domaines bloques
 function getEmbedUrl(postId, type, referer) {
   var tryPlayer = function(nume) {
     var formData = new URLSearchParams();
@@ -123,8 +130,10 @@ function getEmbedUrl(postId, type, referer) {
     })
     .then(function(r) { return r.json(); })
     .then(function(data) {
-      console.log('[HDS] Player', nume, ':', data.embed_url || 'vide');
-      return (data.embed_url && data.embed_url !== '') ? data.embed_url : null;
+      var url = data.embed_url;
+      console.log('[HDS] Player', nume, ':', url || 'vide');
+      if (isBlockedUrl(url)) return null;
+      return url;
     });
   };
 
@@ -135,8 +144,11 @@ function getEmbedUrl(postId, type, referer) {
     if (url) return url;
     return tryPlayer(3);
   }).then(function(url) {
-    if (!url) throw new Error('[HDS] Aucune embed_url pour postId=' + postId);
-    console.log('[HDS] embed_url:', url);
+    if (url) return url;
+    return tryPlayer(4);
+  }).then(function(url) {
+    if (!url) throw new Error('[HDS] Aucune embed_url valide pour postId=' + postId);
+    console.log('[HDS] embed_url valide:', url);
     return url;
   });
 }
@@ -190,6 +202,7 @@ function extractM3u8(hdsplayUrl) {
       throw new Error('[HDS] Erreur decodage eval: ' + e.message);
     }
 
+    // hls4 en priorite, puis hls2, puis hls3
     var hls4 = decoded.match(/"hls4"\s*:\s*"([^"]+)"/);
     var hls2 = decoded.match(/"hls2"\s*:\s*"([^"]+)"/);
     var hls3 = decoded.match(/"hls3"\s*:\s*"([^"]+)"/);
@@ -261,15 +274,4 @@ if (typeof module !== 'undefined' && module.exports) {
   module.exports = { getStreams };
 } else {
   global.getStreams = getStreams;
-}
-
-// ===== TEST LOCAL UNIQUEMENT - A SUPPRIMER AVANT DEPLOIEMENT =====
-if (typeof process !== 'undefined' && process.argv[1] && process.argv[1].indexOf('hds') !== -1) {
-  process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0';
-  getStreams('27205', 'movie', null, null)
-    .then(function(streams) {
-      console.log('\n===== RESULTAT =====');
-      console.log('Streams trouves:', streams.length);
-      if (streams.length > 0) console.log(JSON.stringify(streams, null, 2));
-    });
 }
