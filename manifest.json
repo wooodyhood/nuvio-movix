@@ -1,6 +1,6 @@
 {
   "name": "Woody's Repo",
-  "version": "1.0.5",
+  "version": "1.0.6",
   "scrapers": [
     {
       "id": "movix-rodeo-vf",
@@ -92,6 +92,19 @@
       "logo": "",
       "contentLanguage": ["fr"],
       "formats": ["embed"]
+    },
+    {
+      "id": "noctaflix",
+      "name": "Noctaflix",
+      "description": "Films et séries en VF depuis noctaflix.lol",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/noctaflix.js",
+      "enabled": true,
+      "logo": "https://noctaflix.lol/static/favicon.ico",
+      "contentLanguage": ["fr"],
+      "formats": ["mp4"]
     }
   ]
 }
