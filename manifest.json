@@ -55,6 +55,19 @@
       "formats": ["mp4", "m3u8"]
     },
     {
+      "id": "moviebox",
+      "name": "Moviebox",
+      "description": "Films et séries en VF depuis moviebox.pk",
+      "version": "1.0.0",
+      "author": "wooodyhood",
+      "supportedTypes": ["movie", "tv"],
+      "filename": "providers/moviebox.js",
+      "enabled": true,
+      "logo": "",
+      "contentLanguage": ["fr"],
+      "formats": ["mp4", "m3u8"]
+    },
+    {
       "id": "hds",
       "name": "HDS",
       "description": "Films et séries en streaming depuis hds",
