@@ -1,6 +1,6 @@
 // Provider HDS pour Nuvio TV
 // Site: on2.hds.quest
-// Version: 6.0.0
+// Version: 7.0.0 - Decodeur PACKED sans new Function()
 
 var HDS_DOMAIN = 'https://on2.hds.quest';
 var HDS_API = 'https://on2.hds.quest/wp-admin/admin-ajax.php';
@@ -9,15 +9,50 @@ var TMDB_KEY = '2dca580c2a14b55200e784d157207b4d';
 var HDS_UA = 'Mozilla/5.0 (Linux; Android 10; Mobile) AppleWebKit/537.36';
 
 // Domaines inutilisables (parkes, JS requis)
-var BLOCKED_DOMAINS = ['down-paradise.com', 'ocine.co', 'parklogic.com'];
+var BLOCKED_DOMAINS = ['down-paradise', 'ocine.co', 'parklogic'];
 
 function isBlockedUrl(url) {
-  if (!url) return true;
-  return BLOCKED_DOMAINS.some(function(d) { return url.indexOf(d) !== -1; });
+  if (!url || url === '') return true;
+  for (var i = 0; i < BLOCKED_DOMAINS.length; i++) {
+    if (url.indexOf(BLOCKED_DOMAINS[i]) !== -1) return true;
+  }
+  return false;
 }
 
-// Etape 1 : tmdbId -> titre via TMDB
-function getTitleFromTmdb(tmdbId, mediaType) {
+// Decodeur PACKED (p,a,c,k,e,d) sans new Function() - compatible Hermes
+function decodePacked(html) {
+  var start = html.indexOf("eval(function(p,a,c,k,e,d)");
+  if (start === -1) return null;
+
+  var evalStr = html.substring(start);
+  var end = evalStr.indexOf("split('|')))") + "split('|')))".length;
+  evalStr = evalStr.substring(0, end);
+
+  var argsMatch = evalStr.match(/\('([\s\S]+)',(\d+),(\d+),'([\s\S]+)'\.split\('\|'\)\)\)$/);
+  if (!argsMatch) return null;
+
+  var p = argsMatch[1];
+  var a = parseInt(argsMatch[2]);
+  var c = parseInt(argsMatch[3]);
+  var k = argsMatch[4].split('|');
+
+  var e = function(c) {
+    return (c < a ? '' : e(Math.floor(c / a))) +
+      ((c = c % a) > 35 ? String.fromCharCode(c + 29) : c.toString(36));
+  };
+
+  while (c--) {
+    if (k[c]) {
+      var re = new RegExp('\\b' + e(c) + '\\b', 'g');
+      p = p.replace(re, k[c]);
+    }
+  }
+
+  return p;
+}
+
+// Etape 1 : tmdbId -> titres via TMDB
+function getTitlesFromTmdb(tmdbId, mediaType) {
   var type = mediaType === 'tv' ? 'tv' : 'movie';
   var url = 'https://api.themoviedb.org/3/' + type + '/' + tmdbId + '?language=fr-FR&api_key=' + TMDB_KEY;
 
@@ -57,12 +92,15 @@ function searchOnHDS(title, mediaType) {
     while ((match = pattern.exec(html)) !== null) {
       if (links.indexOf(match[1]) === -1) links.push(match[1]);
     }
+
     var filtered = links.filter(function(l) {
       if (mediaType === 'movie') return l.indexOf('/films/') !== -1;
       return l.indexOf('/series/') !== -1;
     });
+
     if (filtered.length === 0 && links.length > 0) filtered = links;
     if (filtered.length === 0) throw new Error('[HDS] Aucun resultat pour: ' + title);
+
     console.log('[HDS] Trouve:', filtered[0]);
     return filtered[0];
   });
@@ -70,7 +108,7 @@ function searchOnHDS(title, mediaType) {
 
 // Etape 2 combinee : essaie titre FR puis titre original
 function findOnHDS(tmdbId, mediaType) {
-  return getTitleFromTmdb(tmdbId, mediaType)
+  return getTitlesFromTmdb(tmdbId, mediaType)
     .then(function(titles) {
       return searchOnHDS(titles.fr, mediaType)
         .catch(function() {
@@ -174,7 +212,7 @@ function resolveHdsplayUrl(embedUrl) {
   });
 }
 
-// Etape 7 : Extraire le m3u8 depuis la page hdsplay
+// Etape 7 : Decoder la page hdsplay et extraire le m3u8
 function extractM3u8(hdsplayUrl) {
   console.log('[HDS] Fetch hdsplay:', hdsplayUrl);
   return fetch(hdsplayUrl, {
@@ -185,30 +223,19 @@ function extractM3u8(hdsplayUrl) {
   })
   .then(function(r) {
     console.log('[HDS] Status hdsplay:', r.status);
+    if (!r.ok) throw new Error('[HDS] hdsplay HTTP ' + r.status);
     return r.text();
   })
   .then(function(html) {
-    var start = html.indexOf("eval(function(p,a,c,k,e,d)");
-    if (start === -1) throw new Error('[HDS] eval non trouve dans la page hdsplay');
+    var decoded = decodePacked(html);
+    if (!decoded) throw new Error('[HDS] Decodage PACKED echoue');
 
-    var evalStr = html.substring(start);
-    var end = evalStr.indexOf("split('|')))") + "split('|')))".length;
-    evalStr = evalStr.substring(0, end);
-
-    var decoded;
-    try {
-      decoded = (new Function('return ' + evalStr.replace(/^eval/, '')))();
-    } catch(e) {
-      throw new Error('[HDS] Erreur decodage eval: ' + e.message);
-    }
-
-    // hls4 en priorite, puis hls2, puis hls3
     var hls4 = decoded.match(/"hls4"\s*:\s*"([^"]+)"/);
     var hls2 = decoded.match(/"hls2"\s*:\s*"([^"]+)"/);
     var hls3 = decoded.match(/"hls3"\s*:\s*"([^"]+)"/);
 
     console.log('[HDS] hls4:', hls4 ? hls4[1] : 'non trouve');
-    console.log('[HDS] hls2:', hls2 ? hls2[1] : 'non trouve');
+    console.log('[HDS] hls2:', hls2 ? hls2[1].substring(0, 60) + '...' : 'non trouve');
     console.log('[HDS] hls3:', hls3 ? hls3[1] : 'non trouve');
 
     var url = null;
@@ -219,7 +246,7 @@ function extractM3u8(hdsplayUrl) {
     if (!url) throw new Error('[HDS] Aucune source m3u8 trouvee');
     if (url.charAt(0) === '/') url = HDSPLAY + url;
 
-    console.log('[HDS] m3u8:', url);
+    console.log('[HDS] m3u8 final:', url.substring(0, 80) + '...');
     return url;
   });
 }
@@ -251,7 +278,7 @@ function getStreams(tmdbId, mediaType, season, episode) {
       return extractM3u8(hdsplayUrl);
     })
     .then(function(m3u8Url) {
-      console.log('[HDS] SUCCESS:', m3u8Url);
+      console.log('[HDS] SUCCESS');
       return [{
         name: 'HDS',
         title: 'HDS Streaming',
